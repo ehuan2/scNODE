@@ -1,0 +1,6 @@
+scipy
+torchdiffeq
+torchsde
+palettable
+optuna
+natsort

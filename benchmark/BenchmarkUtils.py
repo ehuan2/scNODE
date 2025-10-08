@@ -68,52 +68,95 @@ def loadWOTData(data_dir, split_type):
     ann_data = scanpy.AnnData(X=cnt_data, obs=meta_data)
     return ann_data
 
+def loadHerringData(data_dir):
+    return scanpy.read_h5ad(data_dir)
+
+from enum import Enum
+class Dataset(Enum):
+    DROSOPHILA = 0
+    ZEBRAFISH = 1
+    WOT = 2
+    HERRING = 3
+    HERRING_GABA = 4
+
 # --------------------------------
-# Dataset directories
-zebrafish_data_dir = "../data/single_cell/experimental/zebrafish_embryonic/new_processed"
-wot_data_dir = "../data/single_cell/experimental/Schiebinger2019/reduced_processed/"
-drosophila_data_dir = "../data/single_cell/experimental/drosophila_embryonic/processed/"
+def gen_data_dirs(path_to_dir):
+    from pathlib import Path
+    # Dataset directories
+    zebrafish_data_dir = "scNODE_data/data/single_cell/experimental/zebrafish_embryonic/new_processed"
+    wot_data_dir = "scNODE_data/data/single_cell/experimental/Schiebinger2019/reduced_processed/"
+    drosophila_data_dir = "scNODE_data/data/single_cell/experimental/drosophila_embryonic/processed/"
+    herring_data_dir = f'herring_data/data/Processed_data_RNA-all_full-counts-and-downsampled-CPM.h5ad'
+    herring_gaba_data_dir = f'herring_data/data/Processed_data_RNA-gaba_full-counts-and-downsampled-CPM.h5ad'
 
+    zebrafish_data_dir = Path(path_to_dir) / zebrafish_data_dir
+    wot_data_dir = Path(path_to_dir) / wot_data_dir
+    drosophila_data_dir = Path(path_to_dir) / drosophila_data_dir
+    herring_data_dir = Path(path_to_dir) / herring_data_dir
+    herring_gaba_data_dir = Path(path_to_dir) / herring_gaba_data_dir
+    return zebrafish_data_dir, wot_data_dir, drosophila_data_dir, herring_data_dir, herring_gaba_data_dir
 
-def loadSCData(data_name, split_type, data_dir=None):
+def get_cell_type_name(data_name: Dataset):
+    if data_name == Dataset.ZEBRAFISH:
+        return "ZF6S-Cluster"
+    elif data_name == Dataset.DROSOPHILA:
+        return "seurat_clusters"
+    elif data_name in [Dataset.HERRING_GABA, Dataset.HERRING]:
+        return "cell_type"
+    return None
+
+def loadSCData(data_name, split_type, data_dir=None, path_to_dir='../'):
     '''
     Main function to load scRNA-seq dataset and pre-process it.
     '''
+    zebrafish_data_dir, wot_data_dir, drosophila_data_dir, herring_data_dir, herring_gaba_data_dir = gen_data_dirs(path_to_dir)
+
     print("[ Data={} | Split={} ] Loading data...".format(data_name, split_type))
-    if data_name == "zebrafish":
-        if data_dir == "None":
+    if data_name == Dataset.ZEBRAFISH:
+        if data_dir is None:
             data_dir = zebrafish_data_dir
         ann_data = loadZebrafishData(data_dir, split_type)
         ann_data.X = ann_data.X.astype(float)
         processed_data = preprocess(ann_data.copy())
         cell_types =  processed_data.obs["ZF6S-Cluster"].apply(lambda x: "NAN" if pd.isna(x) else x).values
-    elif data_name == "drosophila":
-        if data_dir == "None":
+    elif data_name == Dataset.DROSOPHILA:
+        if data_dir is None:
             data_dir = drosophila_data_dir
         ann_data = loadDrosophilaData(data_dir, split_type)
         print("Pre-processing...")
         ann_data.X = ann_data.X.astype(float)
         processed_data = preprocess(ann_data.copy())
         cell_types = processed_data.obs.seurat_clusters.values
-    elif data_name == "wot":
-        if data_dir == "None":
+    elif data_name == Dataset.WOT:
+        if data_dir is None:
             data_dir = wot_data_dir
         ann_data = loadWOTData(data_dir, split_type)
         processed_data = ann_data.copy()
         cell_types = None
+    elif data_name in [Dataset.HERRING, Dataset.HERRING_GABA]:
+        # TODO: examine this section here
+        data_dir = herring_data_dir if data_name == Dataset.HERRING else herring_gaba_data_dir
+        ann_data = loadHerringData(data_dir)
+        processed_data = ann_data.copy()
+        cell_types = processed_data.obs.cell_type.values
     else:
         raise ValueError("Unknown data name.")
-    cell_tps = ann_data.obs["tp"]
+    
+    cell_tps = None
+    if data_name not in [Dataset.HERRING, Dataset.HERRING_GABA]:
+        cell_tps = ann_data.obs["tp"]
+    else:
+        cell_tps = ann_data.obs["numerical_age"]
     n_tps = len(np.unique(cell_tps))
     n_genes = ann_data.shape[1]
     return processed_data, cell_tps, cell_types, n_genes, n_tps
 
 
-def tpSplitInd(data_name, split_type):
+def tpSplitInd(data_name, split_type, n_tps=None):
     '''
     Get the training/testing timepoint split for each dataset.
     '''
-    if data_name == "zebrafish":
+    if data_name == Dataset.ZEBRAFISH:
         if split_type == "two_forecasting": # medium
             train_tps = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
             test_tps = [10, 11]
@@ -125,7 +168,7 @@ def tpSplitInd(data_name, split_type):
             test_tps = [2, 4, 6, 8, 10, 11]
         else:
             raise ValueError("Unknown split type {}!".format(split_type))
-    elif data_name == "drosophila":
+    elif data_name == Dataset.DROSOPHILA:
         if split_type == "three_forecasting": # medium
             train_tps = [0, 1, 2, 3, 4, 5, 6, 7]
             test_tps = [8, 9, 10]
@@ -137,7 +180,7 @@ def tpSplitInd(data_name, split_type):
             test_tps = [2, 4, 6, 8, 9, 10]
         else:
             raise ValueError("Unknown split type {}!".format(split_type))
-    elif data_name == "wot":
+    elif data_name == Dataset.WOT:
         unique_days = np.arange(19)
         if split_type == "three_forecasting": # medium
             train_tps = unique_days[:16].tolist()
@@ -154,6 +197,20 @@ def tpSplitInd(data_name, split_type):
             test_tps = [train_tps[t] for t in test_idx]
             for t in test_idx:
                 train_tps.remove(unique_days[t])
+        else:
+            raise ValueError("Unknown split type {}!".format(split_type))
+    elif data_name in [Dataset.HERRING, Dataset.HERRING_GABA]:
+        # TODO: examine this section here
+        # base it on the three interpolation to start with
+        if split_type == 'three_interpolation':
+            # just remove 3 time points from the middle!
+            test_tps = [7, 14, 21]
+            train_tps = []
+
+            for tp in range(n_tps):
+                if tp not in test_tps:
+                    train_tps.append(tp)
+
         else:
             raise ValueError("Unknown split type {}!".format(split_type))
     else:
@@ -173,7 +230,7 @@ def splitBySpec(traj_data, train_tps, test_tps):
 
 def tunedOurPars(data_name, split_type):
     latent_dim = 50
-    if data_name == "zebrafish":
+    if data_name == Dataset.ZEBRAFISH:
         if split_type == "three_interpolation": # easy
             drift_latent_size = [50, 50]
             enc_latent_list = None
@@ -188,7 +245,7 @@ def tunedOurPars(data_name, split_type):
             dec_latent_list = None
         else:
             raise ValueError("Unknown task name {}!".format(split_type))
-    elif data_name == "drosophila":
+    elif data_name == Dataset.DROSOPHILA:
         if split_type == "three_interpolation": # easy
             drift_latent_size = [50, 50]
             enc_latent_list = [50, 50]
@@ -203,7 +260,7 @@ def tunedOurPars(data_name, split_type):
             dec_latent_list = [50]
         else:
             raise ValueError("Unknown task name {}!".format(split_type))
-    elif data_name == "wot":
+    elif data_name == Dataset.WOT:
         if split_type == "three_interpolation": # easy
             drift_latent_size = [50, 50]
             enc_latent_list = None
@@ -218,6 +275,13 @@ def tunedOurPars(data_name, split_type):
             dec_latent_list = None
         else:
             raise ValueError("Unknown task name {}!".format(split_type))
+    elif data_name in [Dataset.HERRING, Dataset.HERRING_GABA]:
+        if split_type == "three_interpolation": # easy
+            # TODO: look into here...
+            drift_latent_size = [50, 50]
+            enc_latent_list = [50, 50]
+            dec_latent_list = [50, 50]
+            # not too sure what to do here...
     else:
         raise ValueError("Unknown data name {}!".format(data_name))
     return latent_dim, drift_latent_size, enc_latent_list, dec_latent_list
@@ -395,11 +459,11 @@ def sampleOT(true_data, pred_data, sample_n, sample_T):
     return np.mean(ot_list)
 
 
-def sampleGaussian(mean, std):
+def sampleGaussian(mean, std, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
     '''
     Sampling with the re-parametric trick.
     '''
     d = dist.normal.Normal(torch.Tensor([0.]), torch.Tensor([1.]))
     r = d.sample(mean.size()).squeeze(-1)
-    x = r * std.float() + mean.float()
+    x = r.to(device) * std.float() + mean.float()
     return x

@@ -9,6 +9,8 @@ import torch
 from tqdm import tqdm
 import numpy as np
 import itertools
+from datetime import datetime
+import os
 
 from model.layer import LinearNet, LinearVAENet
 from model.diff_solver import ODE
@@ -16,13 +18,20 @@ from model.dynamic_model import scNODE
 from optim.loss_func import SinkhornLoss, MSELoss
 from benchmark.BenchmarkUtils import sampleGaussian
 
+from torch.utils.tensorboard import SummaryWriter
+
 # =============================================
 
 def constructscNODEModel(
-        n_genes, latent_dim,
-        enc_latent_list=None, dec_latent_list=None, drift_latent_size=[64],
-        latent_enc_act="none", latent_dec_act="relu", drift_act="relu",
-        ode_method="euler"
+    n_genes,
+    latent_dim,
+    enc_latent_list=None,
+    dec_latent_list=None,
+    drift_latent_size=[64],
+    latent_enc_act="none",
+    latent_dec_act="relu",
+    drift_act="relu",
+    ode_method="euler"
 ):
     '''
     Construct scNODE model.
@@ -65,8 +74,20 @@ def constructscNODEModel(
 # =============================================
 
 def scNODETrainWithPreTrain(
-        train_data, train_tps, latent_ode_model, latent_coeff, epochs,
-        iters, batch_size, lr, pretrain_iters=200, pretrain_lr=1e-3, kl_coeff=0.0
+    train_data,
+    train_tps,
+    latent_ode_model,
+    latent_coeff,
+    epochs,
+    iters,
+    batch_size,
+    lr,
+    pretrain_iters=200,
+    pretrain_lr=1e-3,
+    kl_coeff=0.0,
+    device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
+    data_name="Dataset.HERRING_GABA",
+    visualize_pretrain=False
 ):
     '''
     Train scNODE model.
@@ -90,46 +111,95 @@ def scNODETrainWithPreTrain(
     # Pre-training the VAE component
     latent_encoder = latent_ode_model.latent_encoder
     obs_decoder = latent_ode_model.obs_decoder
-    all_train_data = torch.cat(train_data, dim=0)
+
+    # make a single training dataset -- this is the X
+    all_train_data = torch.cat(train_data, dim=0).to(device)
+    
+    # not needed:
     all_train_tps = np.concatenate([np.repeat(t, train_data[i].shape[0]) for i, t in enumerate(train_tps)])
-    if pretrain_iters > 0:
-        dim_reduction_params = itertools.chain(*[latent_encoder.parameters(), obs_decoder.parameters()])
-        dim_reduction_optimizer = torch.optim.Adam(params=dim_reduction_params, lr=pretrain_lr, betas=(0.95, 0.99))
+
+    run_name = f"run_{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    log_dir = os.path.join("./logs/scNODE_runs", run_name)
+    writer = SummaryWriter(log_dir)
+
+    checkpoint_pretrain_path = f'./checkpoints/{data_name}_pretrain.pth'
+
+    if os.path.exists(checkpoint_pretrain_path):
+        latent_ode_model.load_state_dict(torch.load(checkpoint_pretrain_path))
+
+    # see if we want to first pre-train
+    elif pretrain_iters > 0:
+        dim_reduction_params = itertools.chain(
+            *[latent_encoder.parameters(), obs_decoder.parameters()]
+        )
+        
+        # only optimize the dimensionatliy reduction parameters, makes sense!
+        dim_reduction_optimizer = torch.optim.Adam(
+            params=dim_reduction_params,
+            lr=pretrain_lr,
+            betas=(0.95, 0.99)
+        )
+
         dim_reduction_pbar = tqdm(range(pretrain_iters), desc="[ Pre-Training ]")
         latent_encoder.train()
         obs_decoder.train()
-        dim_reduction_loss_list = []
+
+        # for each step
         for t in dim_reduction_pbar:
             dim_reduction_optimizer.zero_grad()
+            # first we use the encoder to get the latent space
             latent_mu, latent_std = latent_encoder(all_train_data)
-            latent_sample = sampleGaussian(latent_mu, latent_std)
+            latent_sample = sampleGaussian(latent_mu, latent_std, device)
+
+            # then we try to reconstruct the observations
             recon_obs = obs_decoder(latent_sample)
+
             # MSE reconstruction loss
             dim_reduction_loss = MSELoss(all_train_data, recon_obs)
+
             # KL div between latent dist and N(0, 1)
             kl_div = (latent_std**2 + latent_mu**2 - 2*torch.log(latent_std + 1e-5)).mean()
             kl_div = kl_div * kl_coeff
             vae_loss = dim_reduction_loss + kl_div
+            # ** kl divergence is set to 0 for some reason...**
+
             # Backward
             dim_reduction_pbar.set_postfix({"Loss": "{:.3f}".format(vae_loss)})
-            dim_reduction_loss_list.append(vae_loss.item())
             vae_loss.backward()
             dim_reduction_optimizer.step()
-        #####################################
-        # # VAE reconstruction visualization
-        # latent_encoder.eval()
-        # obs_decoder.eval()
-        # latent_mu, latent_std = latent_encoder(all_train_data)
-        # latent_sample = sampleGaussian(latent_mu, latent_std)
-        # recon_obs = obs_decoder(latent_sample)
-        # from plotting.visualization import umapWithPCA, plotUMAPTimePoint
-        # true_umap, umap_model, pca_model = umapWithPCA(all_train_data.detach().numpy(), n_neighbors=50, min_dist=0.1, pca_pcs=50)
-        # pred_umap = umap_model.transform(pca_model.transform(recon_obs.detach().numpy()))
-        # plotUMAPTimePoint(true_umap, pred_umap, all_train_tps, all_train_tps)
-        #####################################
+
+            writer.add_scalar('Pretrain-Loss/KL', kl_div.item(), t)
+            writer.add_scalar('Pretrain-Loss/NLL', dim_reduction_loss.item(), t)
+            writer.add_scalar('Pretrain-Loss/VAE', vae_loss.item(), t)
+        
+        torch.save(latent_ode_model.state_dict(), checkpoint_pretrain_path)
+
+    print(f'Latent ODE model is ready for visualization...')
+
+    #####################################
+    # VAE reconstruction visualization -- if they match it's a good reconstruction! Else, it's pretty shit
+    # Pre-training the VAE component
+    if visualize_pretrain:
+        latent_encoder.eval()
+        obs_decoder.eval()
+
+        latent_mu, latent_std = latent_encoder(all_train_data)
+        latent_sample = sampleGaussian(latent_mu, latent_std, device)
+        recon_obs = obs_decoder(latent_sample)
+        from plotting.PlottingUtils import umapWithPCA
+        from plotting.visualization import plotPredAllTime
+        true_umap, umap_model, pca_model = umapWithPCA(all_train_data.detach().numpy(), n_neighbors=50, min_dist=0.1, pca_pcs=50)
+        pred_umap = umap_model.transform(pca_model.transform(recon_obs.detach().numpy()))
+        plotPredAllTime(true_umap, pred_umap, all_train_tps, all_train_tps, fig_name=f'{data_name}_pretrain.png')
+    #####################################
+
+        print(f'Finish pretraining VAE...')
+        exit()
+
     # Train the entire model
     latent_ode_model.latent_encoder = latent_encoder
     latent_ode_model.obs_decoder = obs_decoder
+
     blur = 0.05
     scaling = 0.5
     loss_list = []
