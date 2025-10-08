@@ -56,6 +56,7 @@ def _unbalancedDist(true_data, pred_data):
         (float) Pair-wise cosine distance.
         (float) Pair-wise correlation distance.
     '''
+    # calculates the l2 distance between the two of them!
     l2_dist = cdist(true_data, pred_data, metric="euclidean")
     cos_dist = cdist(true_data, pred_data, metric="cosine")
     corr_dist = cdist(true_data, pred_data, metric="correlation")

@@ -2,12 +2,15 @@
 # used to test the data and examine the dataset
 import argparse
 import os
+import logging
 import matplotlib.pyplot as plt
 import numpy as np
 import scanpy as sc
 import torch
-from torch import nn
 import torch.distributed as dist
+
+from datetime import datetime
+from torch import nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 from benchmark.BenchmarkUtils import loadSCData, tpSplitInd, tunedOurPars, splitBySpec, Dataset, sampleGaussian
@@ -60,7 +63,7 @@ def prep_splits_herring(ann_data, n_tps, data_name, cell_types):
     print("# cells={}".format(n_cells))
     print("Train tps={}".format(train_tps))
     print("Test tps={}".format(test_tps))
-    return train_data, train_tps, test_data, test_tps, traj_data, tps, traj_cell_types
+    return train_data, train_tps, test_data, test_tps, traj_data, tps, traj_cell_types, times_sorted
 
 # next we want to prepare the data for training
 def prep_splits(ann_data, n_tps, data_name, cell_types):
@@ -105,7 +108,6 @@ def model_training(train_data, train_tps, traj_data, tps):
     batch_size = 32
     lr = 1e-3
     act_name = "relu"
-    n_sim_cells = 2000
 
     latent_dim, drift_latent_size, enc_latent_list, dec_latent_list = tunedOurPars(
         data_name, split_type
@@ -135,7 +137,6 @@ def model_training(train_data, train_tps, traj_data, tps):
         # latent_ode_model = DDP(latent_ode_model, device_ids=[local_rank], output_device=local_rank)
 
     train_tps = train_tps.to(device)
-    print(latent_ode_model)
 
     # latent_ode_model, loss_list, recon_obs, first_latent_dist, latent_seq = scNODETrainWithPreTrain(
     latent_ode_model = scNODETrainWithPreTrain(
@@ -153,19 +154,84 @@ def model_training(train_data, train_tps, traj_data, tps):
         data_name=data_name
     )
 
-    exit()
+    print(f'Finish entire pretraining!')
 
     # dist.destroy_process_group()
 
-    all_recon_obs = scNODEPredict(latent_ode_model, traj_data[0], tps, n_cells=n_sim_cells)  # (# cells, # tps, # genes)
+    # now we want to take the trajectory data and do something with it...
+    return latent_ode_model
+
+
+def visualize_umap_embeds(all_recon_obs, traj_data):
+    from plotting.PlottingUtils import umapWithPCA
+    from plotting.visualization import plotPredAllTime, plotPredTestTime
+    from optim.evaluation import globalEvaluation
+
+    # Visualization - 2D UMAP embeddings
+    print("Compare true and reconstructed data...")
+    true_data = [each.detach().numpy() for each in traj_data]
+    
+    # basically create true_cell_tps and pred_cell_tps which will be annotations for both the true data and predicted ones
+    true_cell_tps = np.concatenate([np.repeat(t, each.shape[0]) for t, each in enumerate(true_data)])
+    pred_cell_tps = np.concatenate([np.repeat(t, all_recon_obs[:, t, :].shape[0]) for t in range(all_recon_obs.shape[1])])
+
+    # now, we remove the t's from the equation, i.e. it's back to cells x genes
+    reorder_pred_data = [all_recon_obs[:, t, :] for t in range(all_recon_obs.shape[1])]
+
+    # then we map the umap of the true data
+    true_umap_traj, umap_model, pca_model = umapWithPCA(np.concatenate(true_data, axis=0), n_neighbors=50, min_dist=0.1, pca_pcs=50)
+    # and then the predicted one
+    pred_umap_traj = umap_model.transform(pca_model.transform(np.concatenate(reorder_pred_data, axis=0)))
+    plotPredAllTime(true_umap_traj, pred_umap_traj, true_cell_tps, pred_cell_tps, fig_name=f'{data_name}_pred_all.png', title=f'Reconstruction of {data_name}')
+    # plots the predicted time points reconstruction as well
+    plotPredTestTime(true_umap_traj, pred_umap_traj, true_cell_tps, pred_cell_tps, test_tps.detach().numpy(), fig_name=f'{data_name}_pred_test.png', title=f'Prediction of {data_name}')
+
+    # Compute evaluation metrics
+    print("Compute metrics...")
+    test_tps_list = [int(t) for t in test_tps]
+    for t in test_tps_list:
+        logging.debug("-" * 70)
+        logging.debug("t = {}".format(t))
+        # -----
+        pred_global_metric = globalEvaluation(traj_data[t].detach().numpy(), all_recon_obs[:, t, :])
+        # we'll get all the distances
+        logging.debug(pred_global_metric)
+
+
+def recover_traj(traj_data, traj_cell_types):
+    """
+    Based on the trajectory data and its cell types, predict the 
+    """
+
 
 if __name__ == '__main__':
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    log_filename = f"./logs/logging/app_{timestamp}.log"
+    
+    # Configure basic logging
+    logging.basicConfig(
+        filename=log_filename,
+        level=logging.DEBUG,                        # Minimum severity to log
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",  # Format
+        datefmt="%Y-%m-%d %H:%M:%S",               # Time format
+    )
+
     parser = argparse.ArgumentParser()
-    parser.add_argument("--drosophila", action="store_true")
+    dataset_sel = [dataset.value for dataset in list(Dataset)]
+    parser.add_argument(
+        '-d',
+        '--dataset',
+        type=Dataset,
+        choices=list(Dataset),
+        metavar=f'{dataset_sel}',
+        default=Dataset.HERRING_GABA,
+        help='The dataset to evaluate from'
+    )
+    parser.add_argument('-v', action="store_true")
 
     args = parser.parse_args()
 
-    data_name = Dataset.HERRING_GABA if not args.drosophila else Dataset.DROSOPHILA
+    data_name = args.dataset
     split_type = "three_interpolation"
 
     # 27000 cells by 2000 genes (HSGs)
@@ -175,7 +241,17 @@ if __name__ == '__main__':
     # Full: 154000 cells x 26700 genes -- way too many probably...
     # Think about the total number of cells per timepoint
     # print(ann_data)
-    train_data, train_tps, test_data, test_tps, traj_data, tps, traj_cell_types = prep_splits(ann_data, n_tps, data_name, cell_types)
+    train_data, train_tps, test_data, test_tps, traj_data, tps, traj_cell_types, times_sorted = prep_splits(ann_data, n_tps, data_name, cell_types)
 
     # now let's train the data
-    model_training(train_data, train_tps, traj_data, tps)
+    latent_ode_model, _, _, _, _ = model_training(train_data, train_tps, traj_data, tps)
+
+    n_sim_cells = 2000
+    # based on all the cells in the first time point, predict the next time points
+    # INCLUDING the TEST time points
+    all_recon_obs = scNODEPredict(latent_ode_model, traj_data[0], tps, n_cells=n_sim_cells)  # (# cells, # tps, # genes)
+
+    if args.v:
+        visualize_umap_embeds(all_recon_obs, traj_data)
+
+    print([times_sorted[int(tp)] for tp in test_tps])

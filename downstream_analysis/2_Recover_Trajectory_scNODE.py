@@ -395,7 +395,7 @@ import networkx as ntx
 from netrd.distance import IpsenMikhailov
 
 
-def compareGrpah():
+def compareGraph():
     res = np.load(
         "./res/trajectory/{}-PAGA_graph-{}-scNODE.npy".format(data_name, split_type),
         allow_pickle=True
@@ -441,4 +441,4 @@ if __name__ == '__main__':
     recoverTraj(traj_data, traj_cell_types)
     computeEmbedding()
     visTraj()
-    compareGrpah()
+    compareGraph()

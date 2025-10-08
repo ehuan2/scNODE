@@ -43,10 +43,20 @@ def SinkhornLoss(true_obs, est_obs, blur=0.05, scaling=0.5, batch_size=None):
     for t in range(n_tps):
         t_est = est_obs[:, t, :]
         t_true = true_obs[t]
+
+        # this makes sure that we're doing balanced OT loss calculation
         if batch_size is not None:
-            cell_idx = np.random.choice(np.arange(t_true.shape[0]), size = batch_size, replace = (t_true.shape[0] < batch_size))
+            cell_idx = np.random.choice(
+                np.arange(t_true.shape[0]),
+                size = batch_size,
+                replace = (t_true.shape[0] < batch_size)
+            )
             t_true = t_true[cell_idx, :]
+
+        # use the sinkhorn loss estimator!
         t_loss = ot_solver(t_true, t_est)
         loss += t_loss
+
+    # average loss over all the time points
     loss = loss / n_tps
     return loss

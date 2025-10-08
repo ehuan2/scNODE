@@ -47,16 +47,26 @@ class scNODE(nn.Module):
         :return: (torch.FloatTensor) Predicted expression at all given timepoints.
                  It has the shape of (batch size, # tps, # genes)
         '''
+        # grab the very first data point
         first_tp_data = data[0]
         if batch_size is not None:
-            cell_idx = np.random.choice(np.arange(first_tp_data.shape[0]), size = batch_size, replace = (first_tp_data.shape[0] < batch_size))
+            cell_idx = np.random.choice(
+                np.arange(first_tp_data.shape[0]),
+                size = batch_size,
+                replace = (first_tp_data.shape[0] < batch_size)
+            )
             first_tp_data = first_tp_data[cell_idx, :]
         # Map data at the first timepoint to the VAE latent space
         first_latent_mu, first_latent_std = self.latent_encoder(first_tp_data)
         first_latent_dist = dist.Normal(first_latent_mu, first_latent_std)
+        
+        # then we sample from this Gaussian that we have
         first_latent_sample = self._sampleGaussian(first_latent_mu, first_latent_std)
+
         # Predict forward with ODE solver in the latent space
+        # ** Question: ~Does this predict itself? It has to right?~ I think it does**
         latent_seq = self.diffeq_decoder(first_latent_sample, tps)
+
         # Convert latent variables (at all timepoints) back to the gene space
         recon_obs = self.obs_decoder(latent_seq) # (batch size, # tps, # genes)
         return recon_obs, first_latent_dist, first_tp_data, latent_seq
@@ -111,6 +121,8 @@ class scNODE(nn.Module):
             recon_obs = self.obs_decoder(latent_sample)
             latent_list.append(latent_sample)
             recons_list.append(recon_obs)
+        
+        # gives back the latent encoding and then the reconstruction
         return latent_list, recons_list
 
 

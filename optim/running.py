@@ -6,6 +6,7 @@ Author:
     Jiaqi Zhang <jiaqi_zhang2@brown.edu>
 '''
 import torch
+import logging
 from tqdm import tqdm
 import numpy as np
 import itertools
@@ -115,7 +116,6 @@ def scNODETrainWithPreTrain(
     # make a single training dataset -- this is the X
     all_train_data = torch.cat(train_data, dim=0).to(device)
     
-    # not needed:
     all_train_tps = np.concatenate([np.repeat(t, train_data[i].shape[0]) for i, t in enumerate(train_tps)])
 
     run_name = f"run_{datetime.now().strftime('%Y%m%d-%H%M%S')}"
@@ -191,32 +191,59 @@ def scNODETrainWithPreTrain(
         true_umap, umap_model, pca_model = umapWithPCA(all_train_data.detach().numpy(), n_neighbors=50, min_dist=0.1, pca_pcs=50)
         pred_umap = umap_model.transform(pca_model.transform(recon_obs.detach().numpy()))
         plotPredAllTime(true_umap, pred_umap, all_train_tps, all_train_tps, fig_name=f'{data_name}_pretrain.png')
-    #####################################
 
         print(f'Finish pretraining VAE...')
         exit()
-
+    #####################################
     # Train the entire model
-    latent_ode_model.latent_encoder = latent_encoder
-    latent_ode_model.obs_decoder = obs_decoder
+
+    checkpoint_train_path = f'./checkpoints/{data_name}_full_train.pth'
 
     blur = 0.05
     scaling = 0.5
     loss_list = []
     optimizer = torch.optim.Adam(params=latent_ode_model.parameters(), lr=lr, betas=(0.95, 0.99))
     latent_ode_model.train()
+
+    if os.path.exists(checkpoint_train_path):
+        latent_ode_model.load_state_dict(torch.load(checkpoint_train_path))
+        # latent_ODE model prediction
+        latent_ode_model.eval()
+        # get the reconstruction, first (time step 0) latent distribution and latent sequence
+        recon_obs, first_latent_dist, _, latent_seq = latent_ode_model(train_data, train_tps, batch_size=None)
+        # avoid the loss list this time
+        return latent_ode_model, None, recon_obs, first_latent_dist, latent_seq
+
     for e in range(epochs):
         epoch_pbar = tqdm(range(iters), desc="[ Epoch {} ]".format(e + 1))
         for t in epoch_pbar:
+            # first we set the optimizer to reset the gradient
             optimizer.zero_grad()
+
+            # then we recreate the first observation, which is simply the training time points
+            # BUT it's in time points that's the important part
             recon_obs, first_latent_dist, first_time_true_batch, latent_seq = latent_ode_model(
-                train_data, train_tps, batch_size=batch_size)
+                train_data,
+                train_tps,
+                batch_size=batch_size
+            )
+
+            # recall: train data is cells x genes by for a specific time point
+            # so this one here will take each cells x genes for a specific time point
+            # and get their encoded
             encoder_latent_seq = [
                 latent_ode_model.vaeReconstruct(
-                    [each[np.random.choice(np.arange(each.shape[0]), size=batch_size, replace=(each.shape[0] < batch_size)), :]]
-                )[0][0]
+                    [ # okay this is kinda silly now I realize, we're giving it a list of size 1 of a single batch
+                        each[
+                            np.random.choice(
+                            np.arange(each.shape[0]),
+                            size=batch_size,
+                            replace=(each.shape[0] < batch_size)), : ]
+                    ] # chooses a random batch of the cells
+                )[0][0] # this means the latent encoding's first batch, i.e. the only batch we gave it
                 for each in train_data
             ]
+
             # -----
             # OT loss between true and reconstructed cell sets at each time point
             # Note: we compare the predicted batch with 200 randomly picked true cells, in order to save computational
@@ -224,14 +251,27 @@ def scNODETrainWithPreTrain(
             ot_loss = SinkhornLoss(train_data, recon_obs, blur=blur, scaling=scaling, batch_size=200)
             # Dynamic regularization: Difference between encoder latent and DE latent
             dynamic_reg = SinkhornLoss(encoder_latent_seq, latent_seq, blur=blur, scaling=scaling, batch_size=None)
+
             loss = ot_loss + latent_coeff * dynamic_reg
+
             epoch_pbar.set_postfix(
                 {"Loss": "{:.3f} | OT={:.3f}, Dynamic_Reg={:.3f}".format(loss, ot_loss, dynamic_reg)})
+
+            logging.debug("Step: {} | Loss: {:.3f} | OT={:.3f}, Dynamic_Reg={:.3f}".format(e * iters + t, loss, ot_loss, dynamic_reg))
+
+            writer.add_scalar('Loss/OT', ot_loss.item(), e * iters + t)
+            writer.add_scalar('Loss/Dynamic_Reg', dynamic_reg.item(), e * iters + t)
+            writer.add_scalar('Loss', loss.item(), e * iters + t)
+
             loss.backward()
             optimizer.step()
             loss_list.append([loss.item(), ot_loss.item(), dynamic_reg.item()])
+
+    torch.save(latent_ode_model.state_dict(), checkpoint_train_path)
+
     # latent_ODE model prediction
     latent_ode_model.eval()
+    # get the reconstruction, first (time step 0) latent distribution and latent sequence
     recon_obs, first_latent_dist, _, latent_seq = latent_ode_model(train_data, train_tps, batch_size=None)
     return latent_ode_model, loss_list, recon_obs, first_latent_dist, latent_seq
 

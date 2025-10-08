@@ -14,7 +14,7 @@ from plotting import _removeAllBorders, _removeTopRightBorders
 
 # ======================================
 
-def plotPredAllTime(true_umap_traj, pred_umap_traj, true_cell_tps, pred_cell_tps, fig_name=None):
+def plotPredAllTime(true_umap_traj, pred_umap_traj, true_cell_tps, pred_cell_tps, fig_name=None, title=None):
     '''Plot predictions at all timepoints.'''
     unique_tps = np.unique(true_cell_tps).astype(int).tolist()
     n_tps = len(unique_tps)
@@ -30,13 +30,15 @@ def plotPredAllTime(true_umap_traj, pred_umap_traj, true_cell_tps, pred_cell_tps
         ax2.scatter(pred_umap_traj[pred_t_idx, 0], pred_umap_traj[pred_t_idx, 1], label=t, color=color_list[i], s=20, alpha=1.0)
     ax2.legend(loc="center left", bbox_to_anchor=(1.0, 0.5))
     # plt.tight_layout()
+    if title is not None:
+        plt.title(title)
     if fig_name is not None:
         plt.savefig(f'figs/{fig_name}')
     else:
         plt.show()
 
 
-def plotPredTestTime(true_umap_traj, pred_umap_traj, true_cell_tps, pred_cell_tps, test_tps):
+def plotPredTestTime(true_umap_traj, pred_umap_traj, true_cell_tps, pred_cell_tps, test_tps, fig_name=None, title=None):
     '''Plot predictions at testing timepoints.'''
     n_tps = len(np.unique(true_cell_tps))
     # color_list = linearSegmentCMap(n_tps, "viridis")
@@ -56,7 +58,13 @@ def plotPredTestTime(true_umap_traj, pred_umap_traj, true_cell_tps, pred_cell_tp
         ax2.scatter(pred_umap_traj[pred_t_idx, 0], pred_umap_traj[pred_t_idx, 1], label=int(t), color=c, s=20, alpha=1.0)
     ax2.legend(loc="center left", bbox_to_anchor=(1.0, 0.5))
     # plt.tight_layout()
-    plt.show()
+
+    if title is not None:
+        plt.title(title)
+    if fig_name is not None:
+        plt.savefig(f'figs/{fig_name}')
+    else:
+        plt.show()
 
 # ======================================
 def compareUMAPTestTime(
