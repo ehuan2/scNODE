@@ -198,11 +198,33 @@ def visualize_umap_embeds(all_recon_obs, traj_data):
         logging.debug(pred_global_metric)
 
 
-def recover_traj(traj_data, traj_cell_types):
+def get_umap_embeddings(data):
     """
-    Based on the trajectory data and its cell types, predict the 
+    Calculates the umap embeddings of the given data.
     """
+    n_neighbors = 50
+    min_dist = 0.1
+    pca_pcs = 50
+    # -----
+    # Original data
+    # print("All tps...")
+    # all_tps = list(range(len(traj_data)))
+    # all_cell_tps = np.concatenate([np.repeat(all_tps[idx], x.shape[0]) for idx, x in enumerate(traj_data)])
+    # all_umap_traj, all_umap_model, all_pca_model = umapWithPCA(
+    #     np.concatenate(traj_data, axis=0), n_neighbors=n_neighbors, min_dist=min_dist, pca_pcs=pca_pcs
+    # )
 
+
+def predict_cell_traj(traj_data, traj_cell_types):
+    """
+    Based on the trajectory data and its cell types, predict the cell trajectories
+    """
+    # first off, we'll compute the umap of the reconstructed observations
+    # then we'll use the PAGA format to construct the cell trajectories
+    # then we'll take these PAGA graphs and construct the distances between them
+    # through the use of IpsenMikhailov metric
+    pass
+    
 
 if __name__ == '__main__':
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -245,13 +267,16 @@ if __name__ == '__main__':
 
     # now let's train the data
     latent_ode_model, _, _, _, _ = model_training(train_data, train_tps, traj_data, tps)
-
     n_sim_cells = 2000
-    # based on all the cells in the first time point, predict the next time points
-    # INCLUDING the TEST time points
-    all_recon_obs = scNODEPredict(latent_ode_model, traj_data[0], tps, n_cells=n_sim_cells)  # (# cells, # tps, # genes)
-
     if args.v:
+        # based on all the cells in the first time point, predict the next time points
+        # INCLUDING the TEST time points
+        all_recon_obs = scNODEPredict(
+            latent_ode_model,
+            traj_data[0],
+            tps,
+            n_cells=n_sim_cells
+        )  # (# cells, # tps, # genes)
         visualize_umap_embeds(all_recon_obs, traj_data)
 
-    print([times_sorted[int(tp)] for tp in test_tps])
+    print(f'Finish everything')

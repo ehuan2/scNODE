@@ -1,0 +1,1 @@
+nohup bash ../discord.sh PYTHONPATH=".:$PYTHONPATH" python benchmark/test_dataset.py &
