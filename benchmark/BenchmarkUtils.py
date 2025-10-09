@@ -73,11 +73,11 @@ def loadHerringData(data_dir):
 
 from enum import Enum
 class Dataset(Enum):
-    DROSOPHILA = 0
-    ZEBRAFISH = 1
-    WOT = 2
-    HERRING = 3
-    HERRING_GABA = 4
+    DROSOPHILA = 'drosophila'
+    ZEBRAFISH = 'zebrafish'
+    WOT = 'wot'
+    HERRING = 'herring'
+    HERRING_GABA = 'herring_gaba'
 
 # --------------------------------
 def gen_data_dirs(path_to_dir):

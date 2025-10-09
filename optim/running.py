@@ -115,8 +115,17 @@ def scNODETrainWithPreTrain(
 
     # make a single training dataset -- this is the X
     all_train_data = torch.cat(train_data, dim=0).to(device)
-    
     all_train_tps = np.concatenate([np.repeat(t, train_data[i].shape[0]) for i, t in enumerate(train_tps)])
+
+    checkpoint_train_path = f'./checkpoints/{data_name}_full_train.pth'
+    if os.path.exists(checkpoint_train_path):
+        latent_ode_model.load_state_dict(torch.load(checkpoint_train_path))
+        # latent_ODE model prediction
+        latent_ode_model.eval()
+        # get the reconstruction, first (time step 0) latent distribution and latent sequence
+        recon_obs, first_latent_dist, _, latent_seq = latent_ode_model(train_data, train_tps, batch_size=None)
+        # avoid the loss list this time
+        return latent_ode_model, None, recon_obs, first_latent_dist, latent_seq
 
     run_name = f"run_{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     log_dir = os.path.join("./logs/scNODE_runs", run_name)
@@ -196,23 +205,11 @@ def scNODETrainWithPreTrain(
         exit()
     #####################################
     # Train the entire model
-
-    checkpoint_train_path = f'./checkpoints/{data_name}_full_train.pth'
-
     blur = 0.05
     scaling = 0.5
     loss_list = []
     optimizer = torch.optim.Adam(params=latent_ode_model.parameters(), lr=lr, betas=(0.95, 0.99))
     latent_ode_model.train()
-
-    if os.path.exists(checkpoint_train_path):
-        latent_ode_model.load_state_dict(torch.load(checkpoint_train_path))
-        # latent_ODE model prediction
-        latent_ode_model.eval()
-        # get the reconstruction, first (time step 0) latent distribution and latent sequence
-        recon_obs, first_latent_dist, _, latent_seq = latent_ode_model(train_data, train_tps, batch_size=None)
-        # avoid the loss list this time
-        return latent_ode_model, None, recon_obs, first_latent_dist, latent_seq
 
     for e in range(epochs):
         epoch_pbar = tqdm(range(iters), desc="[ Epoch {} ]".format(e + 1))
