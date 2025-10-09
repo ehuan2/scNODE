@@ -1,1 +1,1 @@
-nohup bash ../discord.sh PYTHONPATH=".:$PYTHONPATH" python benchmark/test_dataset.py -d herring &
+nohup bash ../discord.sh PYTHONPATH=".:$PYTHONPATH" python benchmark/test_dataset.py --traj_view &

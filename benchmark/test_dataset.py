@@ -175,7 +175,7 @@ def visualize_umap_embeds(all_recon_obs, traj_data):
     true_cell_tps = np.concatenate([np.repeat(t, each.shape[0]) for t, each in enumerate(true_data)])
     pred_cell_tps = np.concatenate([np.repeat(t, all_recon_obs[:, t, :].shape[0]) for t in range(all_recon_obs.shape[1])])
 
-    # now, we remove the t's from the equation, i.e. it's back to cells x genes
+    # we have now an array of length t, of 2000 cells x genes
     reorder_pred_data = [all_recon_obs[:, t, :] for t in range(all_recon_obs.shape[1])]
 
     # then we map the umap of the true data
@@ -198,24 +198,154 @@ def visualize_umap_embeds(all_recon_obs, traj_data):
         logging.debug(pred_global_metric)
 
 
-def get_umap_embeddings(data):
+def get_umap_embed(all_recon_obs, traj_data, train_data, train_tps):
     """
-    Calculates the umap embeddings of the given data.
+    Gets the umap embeddings of the 3 types we want to examine
     """
+    from plotting.PlottingUtils import umapWithPCA
     n_neighbors = 50
     min_dist = 0.1
     pca_pcs = 50
-    # -----
-    # Original data
-    # print("All tps...")
-    # all_tps = list(range(len(traj_data)))
-    # all_cell_tps = np.concatenate([np.repeat(all_tps[idx], x.shape[0]) for idx, x in enumerate(traj_data)])
-    # all_umap_traj, all_umap_model, all_pca_model = umapWithPCA(
-    #     np.concatenate(traj_data, axis=0), n_neighbors=n_neighbors, min_dist=min_dist, pca_pcs=pca_pcs
-    # )
+
+    # Visualization - 2D UMAP embeddings
+    print("Compare true and reconstructed data...")
+    true_data = [each.detach().numpy() for each in traj_data]
+    
+    # basically create true_cell_tps and pred_cell_tps which will be annotations for both the true data and predicted ones
+    # true_cell_tps = np.concatenate([np.repeat(t, each.shape[0]) for t, each in enumerate(true_data)])
+    # pred_cell_tps = np.concatenate([np.repeat(t, all_recon_obs[:, t, :].shape[0]) for t in range(all_recon_obs.shape[1])])
+
+    # it's now that we have an array of length t of 2000 cells x genes
+    reorder_pred_data = [all_recon_obs[:, t, :] for t in range(all_recon_obs.shape[1])]
+
+    # We want to build:
+    # 1. True umap embedding
+    # 2. True - test time points embeddings
+    # 3. True - test + predicted test time point embeddings
+    aug_traj_data = []
+    for i, x in enumerate(reorder_pred_data):
+        if i in train_tps:
+            aug_traj_data.append(traj_data[i]) # use the original data if it exists
+        else:
+            aug_traj_data.append(x)
+
+    # now we have:
+    # 1 = traj_data
+    # 2 = train_data
+    # 3 = aug_traj_data
+    # now we want to grab the tps associated with each one
+    all_cell_tps = np.concatenate([np.repeat(idx, x.shape[0]) for idx, x in enumerate(traj_data)])
+    removed_tps = np.concatenate([np.repeat(train_tps[idx], x.shape[0]) for idx, x in enumerate(train_data)])
+    aug_cell_tps = np.concatenate([np.repeat(idx, x.shape[0]) for idx, x in enumerate(aug_traj_data)])
+    
+    # then we map the umap of the true data
+    true_umap_traj, umap_model, pca_model = umapWithPCA(
+        np.concatenate(true_data, axis=0),
+        n_neighbors=n_neighbors,
+        min_dist=min_dist,
+        pca_pcs=pca_pcs
+    )
+
+    # and then the predicted one
+    removed_model_traj = umap_model.transform(
+        pca_model.transform(
+            np.concatenate(train_data, axis=0)
+        )
+    )
+
+    # and finally the enhanced one
+    aug_traj = umap_model.transform(
+        pca_model.transform(
+            np.concatenate(aug_traj_data, axis=0)
+        )
+    )
+
+    # next we need to annotate the data
+    def annotate_data(data, tps):
+        ann_data = sc.AnnData(data)
+        ann_data.obs["time"] = tps
+        return ann_data
+
+    all_ann_data = annotate_data(true_umap_traj, all_cell_tps)
+    removed_ann_data = annotate_data(removed_model_traj, removed_tps)
+    aug_ann_data = annotate_data(aug_traj, aug_cell_tps)
+    return (all_ann_data, true_umap_traj), (removed_ann_data, removed_model_traj), (aug_ann_data, aug_traj)
 
 
-def predict_cell_traj(traj_data, traj_cell_types):
+def get_paga_graph(ann_data, traj_data):
+    """
+    Given the whole data, the partially removed data and the augmented one,
+    find the graph based on the trajectory
+    """
+    thr = 0.1
+
+    data_conn = ann_data.uns["paga"]["connectivities"].todense()
+    data_conn[np.tril_indices_from(data_conn)] = 0
+    data_conn[data_conn < thr] = 0
+    data_cell_types = ann_data.obs.louvain.values
+    data_node_pos = [
+        np.mean(traj_data[np.where(data_cell_types == str(c))[0], :], axis=0)
+        for c in np.arange(len(np.unique(data_cell_types)))
+    ]
+    data_node_pos = np.asarray(data_node_pos)
+    data_edge = np.asarray(np.where(data_conn != 0)).T
+    return data_node_pos, data_edge, data_conn
+
+
+def plot_paga(data, tps, title, save_to):
+    from plotting import linearSegmentCMap
+    ann_data, traj_data = data
+
+    print("Neighbors")
+    sc.pp.neighbors(ann_data, n_neighbors=5)
+    print("Louvain")
+    sc.tl.louvain(ann_data, resolution=0.5)
+    print("PAGA")
+    sc.tl.paga(ann_data, groups='louvain')
+
+    data_node_pos, data_edge, data_conn = get_paga_graph(ann_data, traj_data)
+
+    color_list = linearSegmentCMap(len(tps), "viridis")
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.set_title(title)
+    for t_idx, t in enumerate(tps):
+        cell_idx = np.where(tps == t)[0]
+        ax.scatter(
+            traj_data[cell_idx, 0], traj_data[cell_idx, 1],
+            color=color_list[t_idx], s=20, alpha=1.0
+        )
+    ax.scatter(data_node_pos[:, 0], data_node_pos[:, 1], s=30, color="k", alpha=1.0)
+    for e in data_edge:
+        ax.plot(
+            [
+                data_node_pos[e[0]][0],
+                data_node_pos[e[1]][0]
+            ],
+            [
+                data_node_pos[e[0]][1],
+                data_node_pos[e[1]][1]
+            ],
+            "k-",
+            lw=1.5
+        )
+
+    plt.tight_layout()
+    plt.savefig(save_to) # can set dpi for better resolution
+    plt.close(fig)
+    return data_conn
+
+
+def compare_paga_graphs(all_conn, other_conn, title):
+    import networkx as ntx
+    from netrd.distance import IpsenMikhailov
+    all_graph = ntx.from_numpy_array(all_conn)
+    other_graph = ntx.from_numpy_array(other_conn)
+    dist_func = IpsenMikhailov()
+    ip_dist = dist_func.dist(all_graph, other_graph)
+    logging.info(f"{title}: {ip_dist}")
+
+
+def predict_cell_traj(all_recon_obs, traj_data, train_data, train_tps, all_tps, data_name):
     """
     Based on the trajectory data and its cell types, predict the cell trajectories
     """
@@ -223,8 +353,35 @@ def predict_cell_traj(traj_data, traj_cell_types):
     # then we'll use the PAGA format to construct the cell trajectories
     # then we'll take these PAGA graphs and construct the distances between them
     # through the use of IpsenMikhailov metric
-    pass
-    
+    all_data, removed_data, aug_data = get_umap_embed(
+        all_recon_obs,
+        traj_data,
+        train_data,
+        train_tps
+    )
+
+    all_conn = plot_paga(
+        all_data,
+        all_tps,
+        f"Original ({data_name})",
+        save_to=f'figs/original_paga_{data_name}.png'
+    )
+    removed_conn = plot_paga(
+        removed_data,
+        train_tps,
+        f"Removed timepoints ({data_name})",
+        save_to=f'figs/removed_paga_{data_name}.png'
+    )
+    aug_conn = plot_paga(
+        aug_data,
+        all_tps,
+        f"Augmented timepoints ({data_name})",
+        save_to=f'figs/aug_paga_{data_name}.png'
+    )
+
+    compare_paga_graphs(all_conn, removed_conn, 'All - Removed Divergence')
+    compare_paga_graphs(all_conn, aug_conn, 'All - Augmented Divergence')
+
 
 if __name__ == '__main__':
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -250,6 +407,7 @@ if __name__ == '__main__':
         help='The dataset to evaluate from'
     )
     parser.add_argument('-v', action="store_true")
+    parser.add_argument('--traj_view', action="store_true")
 
     args = parser.parse_args()
 
@@ -268,15 +426,20 @@ if __name__ == '__main__':
     # now let's train the data
     latent_ode_model, _, _, _, _ = model_training(train_data, train_tps, traj_data, tps)
     n_sim_cells = 2000
+    
+    # based on all the cells in the first time point, predict the next time points
+    # INCLUDING the TEST time points
+    all_recon_obs = scNODEPredict(
+        latent_ode_model,
+        traj_data[0],
+        tps,
+        n_cells=n_sim_cells
+    )  # (# cells, # tps, # genes)
+
     if args.v:
-        # based on all the cells in the first time point, predict the next time points
-        # INCLUDING the TEST time points
-        all_recon_obs = scNODEPredict(
-            latent_ode_model,
-            traj_data[0],
-            tps,
-            n_cells=n_sim_cells
-        )  # (# cells, # tps, # genes)
         visualize_umap_embeds(all_recon_obs, traj_data)
+
+    if args.traj_view:
+        predict_cell_traj(all_recon_obs, traj_data, train_data, train_tps, tps, data_name)
 
     print(f'Finish everything')

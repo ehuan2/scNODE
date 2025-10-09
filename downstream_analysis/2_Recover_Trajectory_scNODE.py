@@ -180,6 +180,7 @@ def computeEmbedding():
     pred_tps = res["pred_tps"]
     use_traj_data = [traj_data[i] for i in use_tps]
     aug_traj_data = []
+    # basically, we just enhance the original data with our predicted ones, i.e. we ONLY use the enhanced ones
     for i, x in enumerate(all_recon_obs):
         if pred_tps[i] not in use_tps:
             aug_traj_data.append(x)
