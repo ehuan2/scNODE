@@ -211,6 +211,10 @@ def get_umap_embed(all_recon_obs, traj_data, train_data, train_tps):
     print("Compare true and reconstructed data...")
     true_data = [each.detach().numpy() for each in traj_data]
     
+    print(f'Length of the trajectory at timestep 0')
+    print(len(traj_data[0]))
+    exit()
+    
     # basically create true_cell_tps and pred_cell_tps which will be annotations for both the true data and predicted ones
     # true_cell_tps = np.concatenate([np.repeat(t, each.shape[0]) for t, each in enumerate(true_data)])
     # pred_cell_tps = np.concatenate([np.repeat(t, all_recon_obs[:, t, :].shape[0]) for t in range(all_recon_obs.shape[1])])
@@ -314,20 +318,20 @@ def plot_paga(data, tps, title, save_to):
             traj_data[cell_idx, 0], traj_data[cell_idx, 1],
             color=color_list[t_idx], s=20, alpha=1.0
         )
-    ax.scatter(data_node_pos[:, 0], data_node_pos[:, 1], s=30, color="k", alpha=1.0)
-    for e in data_edge:
-        ax.plot(
-            [
-                data_node_pos[e[0]][0],
-                data_node_pos[e[1]][0]
-            ],
-            [
-                data_node_pos[e[0]][1],
-                data_node_pos[e[1]][1]
-            ],
-            "k-",
-            lw=1.5
-        )
+    # ax.scatter(data_node_pos[:, 0], data_node_pos[:, 1], s=30, color="k", alpha=1.0)
+    # for e in data_edge:
+    #     ax.plot(
+    #         [
+    #             data_node_pos[e[0]][0],
+    #             data_node_pos[e[1]][0]
+    #         ],
+    #         [
+    #             data_node_pos[e[0]][1],
+    #             data_node_pos[e[1]][1]
+    #         ],
+    #         "k-",
+    #         lw=1.5
+    #     )
 
     plt.tight_layout()
     plt.savefig(save_to) # can set dpi for better resolution
