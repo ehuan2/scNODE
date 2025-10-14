@@ -69,34 +69,7 @@ def prep_splits_herring(ann_data, n_tps, data_name, cell_types):
 def prep_splits(ann_data, n_tps, data_name, cell_types):
     if data_name in [Dataset.HERRING, Dataset.HERRING_GABA]:
         return prep_splits_herring(ann_data, n_tps, data_name, cell_types=cell_types)
-    
-    train_tps, test_tps = tpSplitInd(data_name, split_type, n_tps)
-    data = ann_data.X
-
-    # Convert to torch project
-    # so right now, we have it s.t. if the time points do match up, we get the data
-    # np.where returns a tuple, the array we care about is the first element
-    traj_data = [torch.FloatTensor(data[np.where(cell_tps == t)[0], :]) for t in range(1, n_tps + 1)]
-    traj_cell_types = None
-    if cell_types is not None:
-        traj_cell_types = [
-            cell_types[np.where(cell_tps == t)[0]] for t in range(1, n_tps + 1)
-        ]
-
-    all_tps = list(range(n_tps))
-    train_data, test_data = splitBySpec(traj_data, train_tps, test_tps)
-    tps = torch.FloatTensor(all_tps)
-    train_tps = torch.FloatTensor(train_tps)
-    test_tps = torch.FloatTensor(test_tps)
-    n_cells = [each.shape[0] for each in traj_data]
-
-    print(f'{train_data}, {test_data}')
-    print("# tps={}, # genes={}".format(n_tps, n_genes))
-    print("# cells={}".format(n_cells))
-    print("Train tps={}".format(train_tps))
-    print("Test tps={}".format(test_tps))
-    return train_data, train_tps, test_data, test_tps, traj_data, tps, traj_cell_types
-
+    raise ValueError('Needs to run a Herring dataset')
 
 def model_training(train_data, train_tps, traj_data, tps):
     # Model training
@@ -383,7 +356,7 @@ def predict_cell_traj(all_recon_obs, traj_data, train_data, train_tps, all_tps, 
 
 if __name__ == '__main__':
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    log_filename = f"./logs/logging/app_{timestamp}.log"
+    log_filename = f"./logs/logging/app_{timestamp}_real_tps.log"
     
     # Configure basic logging
     logging.basicConfig(

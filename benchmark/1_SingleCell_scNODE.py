@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import torch
 import numpy as np
 
-from benchmark.BenchmarkUtils import loadSCData, tpSplitInd, tunedOurPars, splitBySpec
+from benchmark.BenchmarkUtils import loadSCData, tpSplitInd, tunedOurPars, splitBySpec, Dataset
 from plotting.__init__ import *
 from plotting.visualization import plotPredAllTime, plotPredTestTime, computeDrift, plotStream, plotStreamByCellType
 from plotting.PlottingUtils import umapWithPCA, computeLatentEmbedding
@@ -21,7 +21,7 @@ from optim.evaluation import globalEvaluation
 print("=" * 70)
 # Specify the dataset: zebrafish, drosophila, wot
 # Representing ZB, DR, SC, repectively
-data_name= "zebrafish"
+data_name = Dataset.DROSOPHILA
 print("[ {} ]".format(data_name).center(60))
 # Specify the type of prediction tasks: three_interpolation, two_forecasting, three_forecasting, remove_recovery
 # The tasks feasible for each dataset:
@@ -72,7 +72,7 @@ latent_ode_model = constructscNODEModel(
 )
 latent_ode_model, loss_list, recon_obs, first_latent_dist, latent_seq = scNODETrainWithPreTrain(
     train_data, train_tps, latent_ode_model, latent_coeff=latent_coeff, epochs=epochs, iters=iters,
-    batch_size=batch_size, lr=lr, pretrain_iters=pretrain_iters, pretrain_lr=pretrain_lr
+    batch_size=batch_size, lr=lr, pretrain_iters=pretrain_iters, pretrain_lr=pretrain_lr, data_name=data_name
 )
 all_recon_obs = scNODEPredict(latent_ode_model, traj_data[0], tps, n_cells=n_sim_cells)  # (# cells, # tps, # genes)
 

@@ -98,7 +98,7 @@ def prep_splits(ann_data, n_tps, data_name, cell_types):
     return train_data, train_tps, test_data, test_tps, traj_data, tps, traj_cell_types
 
 
-def model_training(train_data, train_tps, traj_data, tps):
+def model_training(train_data, train_tps, traj_data, tps, n_genes, split_type, use_hvgs):
     # Model training
     pretrain_iters = 200
     pretrain_lr = 1e-3
@@ -151,7 +151,9 @@ def model_training(train_data, train_tps, traj_data, tps):
         pretrain_iters=pretrain_iters,
         pretrain_lr=pretrain_lr,
         device=device,
-        data_name=data_name
+        data_name=data_name,
+        split_type=split_type,
+        use_hvgs=use_hvgs
     )
 
     print(f'Finish entire pretraining!')
@@ -162,7 +164,7 @@ def model_training(train_data, train_tps, traj_data, tps):
     return latent_ode_model
 
 
-def visualize_umap_embeds(all_recon_obs, traj_data):
+def visualize_umap_embeds(all_recon_obs, traj_data, split_type):
     from plotting.PlottingUtils import umapWithPCA
     from plotting.visualization import plotPredAllTime, plotPredTestTime
     from optim.evaluation import globalEvaluation
@@ -182,9 +184,9 @@ def visualize_umap_embeds(all_recon_obs, traj_data):
     true_umap_traj, umap_model, pca_model = umapWithPCA(np.concatenate(true_data, axis=0), n_neighbors=50, min_dist=0.1, pca_pcs=50)
     # and then the predicted one
     pred_umap_traj = umap_model.transform(pca_model.transform(np.concatenate(reorder_pred_data, axis=0)))
-    plotPredAllTime(true_umap_traj, pred_umap_traj, true_cell_tps, pred_cell_tps, fig_name=f'{data_name}_pred_all.png', title=f'Reconstruction of {data_name}')
+    plotPredAllTime(true_umap_traj, pred_umap_traj, true_cell_tps, pred_cell_tps, fig_name=f'{data_name}_{split_type}_pred_all.png', title=f'Reconstruction of {data_name}')
     # plots the predicted time points reconstruction as well
-    plotPredTestTime(true_umap_traj, pred_umap_traj, true_cell_tps, pred_cell_tps, test_tps.detach().numpy(), fig_name=f'{data_name}_pred_test.png', title=f'Prediction of {data_name}')
+    plotPredTestTime(true_umap_traj, pred_umap_traj, true_cell_tps, pred_cell_tps, test_tps.detach().numpy(), fig_name=f'{data_name}_{split_type}_pred_test.png', title=f'Prediction of {data_name}')
 
     # Compute evaluation metrics
     print("Compute metrics...")
@@ -406,14 +408,15 @@ if __name__ == '__main__':
     )
     parser.add_argument('-v', action="store_true")
     parser.add_argument('--traj_view', action="store_true")
+    parser.add_argument('--hvgs', action='store_true')
 
     args = parser.parse_args()
 
     data_name = args.dataset
-    split_type = "three_interpolation"
+    split_type = "remove_recovery"
 
-    # 27000 cells by 2000 genes (HSGs)
-    ann_data, cell_tps, cell_types, n_genes, n_tps = loadSCData(data_name, split_type, path_to_dir='../')
+    # 27000 cells by 2000 genes (HVGs) if true
+    ann_data, cell_tps, cell_types, n_genes, n_tps = loadSCData(data_name, split_type, path_to_dir='../', use_hvgs=args.hvgs)
 
     # GABA: 27500 cells x 22500 genes
     # Full: 154000 cells x 26700 genes -- way too many probably...
@@ -422,7 +425,15 @@ if __name__ == '__main__':
     train_data, train_tps, test_data, test_tps, traj_data, tps, traj_cell_types = prep_splits(ann_data, n_tps, data_name, cell_types)
 
     # now let's train the data
-    latent_ode_model, _, _, _, _ = model_training(train_data, train_tps, traj_data, tps)
+    latent_ode_model, _, _, _, _ = model_training(
+        train_data,
+        train_tps,
+        traj_data,
+        tps,
+        n_genes,
+        split_type=split_type,
+        use_hvgs=args.hvgs
+    )
     n_sim_cells = 2000
     
     # based on all the cells in the first time point, predict the next time points
@@ -435,7 +446,7 @@ if __name__ == '__main__':
     )  # (# cells, # tps, # genes)
 
     if args.v:
-        visualize_umap_embeds(all_recon_obs, traj_data)
+        visualize_umap_embeds(all_recon_obs, traj_data, split_type=split_type)
 
     if args.traj_view:
         print(tps)

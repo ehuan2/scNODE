@@ -68,8 +68,15 @@ def loadWOTData(data_dir, split_type):
     ann_data = scanpy.AnnData(X=cnt_data, obs=meta_data)
     return ann_data
 
-def loadHerringData(data_dir):
-    return scanpy.read_h5ad(data_dir)
+def loadHerringData(data_dir, use_hvgs):
+    ann_data = scanpy.read_h5ad(data_dir)
+    if not use_hvgs:
+        return ann_data
+    
+    # otherwise, let's preprocess this to use the top 2000 highly variable genes
+    scanpy.pp.highly_variable_genes(ann_data, n_top_genes=2000)
+    print(f'Num genes: {ann_data.shape[1]}, num HVGS: {ann_data.var["highly_variable"].sum()}')
+    return ann_data
 
 from enum import Enum
 class Dataset(Enum):
@@ -105,7 +112,7 @@ def get_cell_type_name(data_name: Dataset):
         return "cell_type"
     return None
 
-def loadSCData(data_name, split_type, data_dir=None, path_to_dir='../'):
+def loadSCData(data_name, split_type, data_dir=None, path_to_dir='../', use_hvgs=False):
     '''
     Main function to load scRNA-seq dataset and pre-process it.
     '''
@@ -136,7 +143,7 @@ def loadSCData(data_name, split_type, data_dir=None, path_to_dir='../'):
     elif data_name in [Dataset.HERRING, Dataset.HERRING_GABA]:
         # TODO: examine this section here
         data_dir = herring_data_dir if data_name == Dataset.HERRING else herring_gaba_data_dir
-        ann_data = loadHerringData(data_dir)
+        ann_data = loadHerringData(data_dir, use_hvgs=use_hvgs)
         processed_data = ann_data.copy()
         cell_types = processed_data.obs.cell_type.values
     else:
