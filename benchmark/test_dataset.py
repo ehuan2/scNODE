@@ -190,12 +190,12 @@ def visualize_umap_embeds(all_recon_obs, traj_data):
     print("Compute metrics...")
     test_tps_list = [int(t) for t in test_tps]
     for t in test_tps_list:
-        logging.debug("-" * 70)
-        logging.debug("t = {}".format(t))
+        logging.info("-" * 70)
+        logging.info("t = {}".format(t))
         # -----
         pred_global_metric = globalEvaluation(traj_data[t].detach().numpy(), all_recon_obs[:, t, :])
         # we'll get all the distances
-        logging.debug(pred_global_metric)
+        logging.info(pred_global_metric)
 
 
 def get_umap_embed(all_recon_obs, traj_data, train_data, train_tps):
@@ -211,14 +211,6 @@ def get_umap_embed(all_recon_obs, traj_data, train_data, train_tps):
     print("Compare true and reconstructed data...")
     true_data = [each.detach().numpy() for each in traj_data]
     
-    print(f'Length of the trajectory at timestep 0')
-    print(len(traj_data[0]))
-    exit()
-    
-    # basically create true_cell_tps and pred_cell_tps which will be annotations for both the true data and predicted ones
-    # true_cell_tps = np.concatenate([np.repeat(t, each.shape[0]) for t, each in enumerate(true_data)])
-    # pred_cell_tps = np.concatenate([np.repeat(t, all_recon_obs[:, t, :].shape[0]) for t in range(all_recon_obs.shape[1])])
-
     # it's now that we have an array of length t of 2000 cells x genes
     reorder_pred_data = [all_recon_obs[:, t, :] for t in range(all_recon_obs.shape[1])]
 
@@ -273,7 +265,7 @@ def get_umap_embed(all_recon_obs, traj_data, train_data, train_tps):
     all_ann_data = annotate_data(true_umap_traj, all_cell_tps)
     removed_ann_data = annotate_data(removed_model_traj, removed_tps)
     aug_ann_data = annotate_data(aug_traj, aug_cell_tps)
-    return (all_ann_data, true_umap_traj), (removed_ann_data, removed_model_traj), (aug_ann_data, aug_traj)
+    return (all_ann_data, true_umap_traj, all_cell_tps), (removed_ann_data, removed_model_traj, removed_tps), (aug_ann_data, aug_traj, aug_cell_tps)
 
 
 def get_paga_graph(ann_data, traj_data):
@@ -296,9 +288,9 @@ def get_paga_graph(ann_data, traj_data):
     return data_node_pos, data_edge, data_conn
 
 
-def plot_paga(data, tps, title, save_to):
+def plot_paga(data, title, save_to):
     from plotting import linearSegmentCMap
-    ann_data, traj_data = data
+    ann_data, traj_data, tps = data
 
     print("Neighbors")
     sc.pp.neighbors(ann_data, n_neighbors=5)
@@ -309,7 +301,10 @@ def plot_paga(data, tps, title, save_to):
 
     data_node_pos, data_edge, data_conn = get_paga_graph(ann_data, traj_data)
 
-    color_list = linearSegmentCMap(len(tps), "viridis")
+    unique_tps = np.unique(tps).astype(int).tolist()
+    n_tps = len(unique_tps)
+
+    color_list = linearSegmentCMap(n_tps, "viridis")
     fig, ax = plt.subplots(figsize=(8, 8))
     ax.set_title(title)
     for t_idx, t in enumerate(tps):
@@ -318,20 +313,22 @@ def plot_paga(data, tps, title, save_to):
             traj_data[cell_idx, 0], traj_data[cell_idx, 1],
             color=color_list[t_idx], s=20, alpha=1.0
         )
-    # ax.scatter(data_node_pos[:, 0], data_node_pos[:, 1], s=30, color="k", alpha=1.0)
-    # for e in data_edge:
-    #     ax.plot(
-    #         [
-    #             data_node_pos[e[0]][0],
-    #             data_node_pos[e[1]][0]
-    #         ],
-    #         [
-    #             data_node_pos[e[0]][1],
-    #             data_node_pos[e[1]][1]
-    #         ],
-    #         "k-",
-    #         lw=1.5
-    #     )
+
+    # the extra graph
+    ax.scatter(data_node_pos[:, 0], data_node_pos[:, 1], s=30, color="k", alpha=1.0)
+    for e in data_edge:
+        ax.plot(
+            [
+                data_node_pos[e[0]][0],
+                data_node_pos[e[1]][0]
+            ],
+            [
+                data_node_pos[e[0]][1],
+                data_node_pos[e[1]][1]
+            ],
+            "k-",
+            lw=1.5
+        )
 
     plt.tight_layout()
     plt.savefig(save_to) # can set dpi for better resolution
@@ -366,19 +363,16 @@ def predict_cell_traj(all_recon_obs, traj_data, train_data, train_tps, all_tps, 
 
     all_conn = plot_paga(
         all_data,
-        all_tps,
         f"Original ({data_name})",
         save_to=f'figs/original_paga_{data_name}.png'
     )
     removed_conn = plot_paga(
         removed_data,
-        train_tps,
         f"Removed timepoints ({data_name})",
         save_to=f'figs/removed_paga_{data_name}.png'
     )
     aug_conn = plot_paga(
         aug_data,
-        all_tps,
         f"Augmented timepoints ({data_name})",
         save_to=f'figs/aug_paga_{data_name}.png'
     )
@@ -394,7 +388,7 @@ if __name__ == '__main__':
     # Configure basic logging
     logging.basicConfig(
         filename=log_filename,
-        level=logging.DEBUG,                        # Minimum severity to log
+        level=logging.INFO,                        # Minimum severity to log
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",  # Format
         datefmt="%Y-%m-%d %H:%M:%S",               # Time format
     )
@@ -444,6 +438,7 @@ if __name__ == '__main__':
         visualize_umap_embeds(all_recon_obs, traj_data)
 
     if args.traj_view:
+        print(tps)
         predict_cell_traj(all_recon_obs, traj_data, train_data, train_tps, tps, data_name)
 
     print(f'Finish everything')
