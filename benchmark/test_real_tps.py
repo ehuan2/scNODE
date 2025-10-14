@@ -406,6 +406,8 @@ if __name__ == '__main__':
     )
     parser.add_argument('-v', action="store_true")
     parser.add_argument('--traj_view', action="store_true")
+    # so this uses the real time points rather than the indexed ones
+    parser.add_argument('--real_tps', action='store_true')
 
     args = parser.parse_args()
 
