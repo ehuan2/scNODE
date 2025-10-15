@@ -189,14 +189,14 @@ def visualize_umap_embeds(all_recon_obs, traj_data, split_type, cell_type='all')
     # create the directories if they don't exist
     os.makedirs(f'figs/{data_name}/{split_type}', exist_ok=True)
 
-    plotPredAllTime(
-        true_umap_traj,
-        pred_umap_traj,
-        true_cell_tps,
-        pred_cell_tps,
-        fig_name=f'{data_name}/{split_type}/cell_type_{cell_type}_pred_all.png',
-        title=f'Reconstruction of {data_name} with {cell_type}'
-    )
+    # plotPredAllTime(
+    #     true_umap_traj,
+    #     pred_umap_traj,
+    #     true_cell_tps,
+    #     pred_cell_tps,
+    #     fig_name=f'{data_name}/{split_type}/cell_type_{cell_type}_pred_all.png',
+    #     title=f'Reconstruction of {data_name} with {cell_type}'
+    # )
     # plots the predicted time points reconstruction as well
     plotPredTestTime(
         true_umap_traj,
