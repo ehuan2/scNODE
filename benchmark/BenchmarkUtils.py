@@ -74,9 +74,12 @@ def loadHerringData(data_dir, use_hvgs):
         return ann_data
     
     # otherwise, let's preprocess this to use the top 2000 highly variable genes
-    scanpy.pp.highly_variable_genes(ann_data, n_top_genes=2000)
-    print(f'Num genes: {ann_data.shape[1]}, num HVGS: {ann_data.var["highly_variable"].sum()}')
-    return ann_data
+    # ** Note: I thought there were some nans here, but in reality there was an issue with the input data **
+    # Only seurat_v3 can have unnormalized gene counts :)
+    scanpy.pp.highly_variable_genes(ann_data, n_top_genes=2000, flavor='seurat_v3')
+
+    # let's return JUST the annotated data that's the top 2000 genes
+    return ann_data[:, ann_data.var['highly_variable']].copy()
 
 from enum import Enum
 class Dataset(Enum):
@@ -86,12 +89,17 @@ class Dataset(Enum):
     HERRING = 'herring'
     HERRING_GABA = 'herring_gaba'
 
+class SplitType(Enum):
+    THREE_INTERPOLATION = 'three_interpolation'
+    REMOVE_RECOVERY = 'remove_recovery'
+
+
 # --------------------------------
 def gen_data_dirs(path_to_dir):
     from pathlib import Path
     # Dataset directories
     zebrafish_data_dir = "scNODE_data/data/single_cell/experimental/zebrafish_embryonic/new_processed"
-    wot_data_dir = "scNODE_data/data/single_cell/experimental/Schiebinger2019/reduced_processed/"
+    wot_data_dir = "scNODE_data/data/single_cell/experimental/Schiebinger2019/reduce_processed/"
     drosophila_data_dir = "scNODE_data/data/single_cell/experimental/drosophila_embryonic/processed/"
     herring_data_dir = f'herring_data/data/Processed_data_RNA-all_full-counts-and-downsampled-CPM.h5ad'
     herring_gaba_data_dir = f'herring_data/data/Processed_data_RNA-gaba_full-counts-and-downsampled-CPM.h5ad'
@@ -217,7 +225,14 @@ def tpSplitInd(data_name, split_type, n_tps=None):
             for tp in range(n_tps):
                 if tp not in test_tps:
                     train_tps.append(tp)
+        elif split_type == 'remove_recovery':
+            # just remove 3 time points from the middle!
+            test_tps = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22]
+            train_tps = []
 
+            for tp in range(n_tps):
+                if tp not in test_tps:
+                    train_tps.append(tp)
         else:
             raise ValueError("Unknown split type {}!".format(split_type))
     else:
@@ -285,6 +300,11 @@ def tunedOurPars(data_name, split_type):
     elif data_name in [Dataset.HERRING, Dataset.HERRING_GABA]:
         if split_type == "three_interpolation": # easy
             # TODO: look into here...
+            drift_latent_size = [50, 50]
+            enc_latent_list = [50, 50]
+            dec_latent_list = [50, 50]
+            # not too sure what to do here...
+        else:
             drift_latent_size = [50, 50]
             enc_latent_list = [50, 50]
             dec_latent_list = [50, 50]

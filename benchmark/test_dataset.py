@@ -13,7 +13,7 @@ from datetime import datetime
 from torch import nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-from benchmark.BenchmarkUtils import loadSCData, tpSplitInd, tunedOurPars, splitBySpec, Dataset, sampleGaussian
+from benchmark.BenchmarkUtils import loadSCData, tpSplitInd, tunedOurPars, splitBySpec, Dataset, sampleGaussian, SplitType
 from optim.running import constructscNODEModel, scNODETrainWithPreTrain, scNODEPredict
 
 
@@ -164,10 +164,11 @@ def model_training(train_data, train_tps, traj_data, tps, n_genes, split_type, u
     return latent_ode_model
 
 
-def visualize_umap_embeds(all_recon_obs, traj_data, split_type):
+def visualize_umap_embeds(all_recon_obs, traj_data, split_type, cell_type='all'):
     from plotting.PlottingUtils import umapWithPCA
     from plotting.visualization import plotPredAllTime, plotPredTestTime
     from optim.evaluation import globalEvaluation
+    import os
 
     # Visualization - 2D UMAP embeddings
     print("Compare true and reconstructed data...")
@@ -184,10 +185,30 @@ def visualize_umap_embeds(all_recon_obs, traj_data, split_type):
     true_umap_traj, umap_model, pca_model = umapWithPCA(np.concatenate(true_data, axis=0), n_neighbors=50, min_dist=0.1, pca_pcs=50)
     # and then the predicted one
     pred_umap_traj = umap_model.transform(pca_model.transform(np.concatenate(reorder_pred_data, axis=0)))
-    plotPredAllTime(true_umap_traj, pred_umap_traj, true_cell_tps, pred_cell_tps, fig_name=f'{data_name}_{split_type}_pred_all.png', title=f'Reconstruction of {data_name}')
-    # plots the predicted time points reconstruction as well
-    plotPredTestTime(true_umap_traj, pred_umap_traj, true_cell_tps, pred_cell_tps, test_tps.detach().numpy(), fig_name=f'{data_name}_{split_type}_pred_test.png', title=f'Prediction of {data_name}')
 
+    # create the directories if they don't exist
+    os.makedirs(f'figs/{data_name}/{split_type}', exist_ok=True)
+
+    plotPredAllTime(
+        true_umap_traj,
+        pred_umap_traj,
+        true_cell_tps,
+        pred_cell_tps,
+        fig_name=f'{data_name}/{split_type}/cell_type_{cell_type}_pred_all.png',
+        title=f'Reconstruction of {data_name} with {cell_type}'
+    )
+    # plots the predicted time points reconstruction as well
+    plotPredTestTime(
+        true_umap_traj,
+        pred_umap_traj,
+        true_cell_tps,
+        pred_cell_tps,
+        test_tps.detach().numpy(),
+        fig_name=f'{data_name}/{split_type}/cell_type_{cell_type}_pred_test.png',
+        title=f'Prediction of {data_name}'
+    )
+
+    """
     # Compute evaluation metrics
     print("Compute metrics...")
     test_tps_list = [int(t) for t in test_tps]
@@ -198,6 +219,7 @@ def visualize_umap_embeds(all_recon_obs, traj_data, split_type):
         pred_global_metric = globalEvaluation(traj_data[t].detach().numpy(), all_recon_obs[:, t, :])
         # we'll get all the distances
         logging.info(pred_global_metric)
+    """
 
 
 def get_umap_embed(all_recon_obs, traj_data, train_data, train_tps):
@@ -409,11 +431,23 @@ if __name__ == '__main__':
     parser.add_argument('-v', action="store_true")
     parser.add_argument('--traj_view', action="store_true")
     parser.add_argument('--hvgs', action='store_true')
+    parser.add_argument('--per_cell_type', action='store_true')
+
+    split_type_sel = [split_type.value for split_type in list(SplitType)]
+    parser.add_argument(
+        '-s',
+        '--split_type',
+        type=SplitType,
+        choices=list(SplitType),
+        metavar=f'{split_type_sel}',
+        default=SplitType.THREE_INTERPOLATION,
+        help='split type to choose from'
+    )
 
     args = parser.parse_args()
 
     data_name = args.dataset
-    split_type = "remove_recovery"
+    split_type = args.split_type.value
 
     # 27000 cells by 2000 genes (HVGs) if true
     ann_data, cell_tps, cell_types, n_genes, n_tps = loadSCData(data_name, split_type, path_to_dir='../', use_hvgs=args.hvgs)
@@ -447,6 +481,44 @@ if __name__ == '__main__':
 
     if args.v:
         visualize_umap_embeds(all_recon_obs, traj_data, split_type=split_type)
+
+        if args.per_cell_type and data_name in [Dataset.HERRING, Dataset.HERRING_GABA]:
+            # we want to predict for each type of cell type
+            major_clust = ann_data.obs['major_clust'].unique().tolist()
+            print(f'Cell types: {major_clust}')
+
+            all_times_sorted = sorted(ann_data.obs['numerical_age'].unique().tolist())
+            for cell_type in major_clust:
+                cell_type_data = ann_data[ann_data.obs['major_clust'] == cell_type].copy()
+                cell_tps = cell_type_data.obs["numerical_age"]
+                times_sorted = sorted(cell_type_data.obs['numerical_age'].unique().tolist())
+
+                # cell type for traj data at ...
+                cell_traj_data = [
+                    torch.FloatTensor(
+                        cell_type_data.X[np.where(cell_tps == t)[0], :].toarray()
+                    )
+                    for t in times_sorted
+                ]
+
+                # only predict the relevant time points based on times_sorted
+                tps = torch.FloatTensor([
+                    all_times_sorted.index(time)
+                    for time in times_sorted
+                ])
+
+                recon_obs = scNODEPredict(
+                    latent_ode_model,
+                    cell_traj_data[0],
+                    tps,
+                    n_cells=n_sim_cells
+                )
+                visualize_umap_embeds(
+                    recon_obs,
+                    cell_traj_data,
+                    split_type=split_type,
+                    cell_type=cell_type
+                )
 
     if args.traj_view:
         print(tps)
