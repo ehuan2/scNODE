@@ -189,14 +189,14 @@ def visualize_umap_embeds(all_recon_obs, traj_data, split_type, cell_type='all')
     # create the directories if they don't exist
     os.makedirs(f'figs/{data_name}/{split_type}', exist_ok=True)
 
-    # plotPredAllTime(
-    #     true_umap_traj,
-    #     pred_umap_traj,
-    #     true_cell_tps,
-    #     pred_cell_tps,
-    #     fig_name=f'{data_name}/{split_type}/cell_type_{cell_type}_pred_all.png',
-    #     title=f'Reconstruction of {data_name} with {cell_type}'
-    # )
+    plotPredAllTime(
+        true_umap_traj,
+        pred_umap_traj,
+        true_cell_tps,
+        pred_cell_tps,
+        fig_name=f'{data_name}/{split_type}/cell_type_{cell_type}_pred_all.png',
+        title=f'Reconstruction of {data_name} with {cell_type}'
+    )
     # plots the predicted time points reconstruction as well
     plotPredTestTime(
         true_umap_traj,
@@ -205,7 +205,7 @@ def visualize_umap_embeds(all_recon_obs, traj_data, split_type, cell_type='all')
         pred_cell_tps,
         test_tps.detach().numpy(),
         fig_name=f'{data_name}/{split_type}/cell_type_{cell_type}_pred_test.png',
-        title=f'Prediction of {data_name}'
+        title=f'Prediction of {data_name} with {cell_type}'
     )
 
     """
@@ -485,7 +485,7 @@ if __name__ == '__main__':
         if args.per_cell_type and data_name in [Dataset.HERRING, Dataset.HERRING_GABA]:
             # we want to predict for each type of cell type
             major_clust = ann_data.obs['major_clust'].unique().tolist()
-            print(f'Cell types: {major_clust}')
+            print(f'Cell types: {major_clust}, num: {len(major_clust)}')
 
             all_times_sorted = sorted(ann_data.obs['numerical_age'].unique().tolist())
             for cell_type in major_clust:

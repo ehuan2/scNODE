@@ -40,26 +40,26 @@ def plotPredAllTime(true_umap_traj, pred_umap_traj, true_cell_tps, pred_cell_tps
 
 def plotPredTestTime(true_umap_traj, pred_umap_traj, true_cell_tps, pred_cell_tps, test_tps, fig_name=None, title=None):
     '''Plot predictions at testing timepoints.'''
-    n_tps = len(np.unique(true_cell_tps).astype(int).tolist())
-    color_list = linearSegmentCMap(n_tps, "viridis")
-    # n_test_tps = len(test_tps)
-    # color_list = linearSegmentCMap(n_test_tps, "viridis")
+    # n_tps = len(np.unique(true_cell_tps).astype(int).tolist())
+    # color_list = linearSegmentCMap(n_tps, "viridis")
+    n_test_tps = len(test_tps)
+    color_list = linearSegmentCMap(n_test_tps, "viridis")
     # color_list = Vivid_10.mpl_colors
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
     ax1.set_title("True Data", fontsize=15)
     ax2.set_title("Predictions", fontsize=15)
     ax1.scatter(true_umap_traj[:, 0], true_umap_traj[:, 1], label="other", c=gray_color, s=40, alpha=0.5)
     ax2.scatter(true_umap_traj[:, 0], true_umap_traj[:, 1], label="other", c=gray_color, s=40, alpha=0.5)
-    print(f'Test time points: {test_tps}')
+
     for i, t in enumerate(test_tps):
-        c = color_list[t.astype(int)]
+        c = color_list[i]
         true_t_idx = np.where(true_cell_tps == t)[0]
         pred_t_idx = np.where(pred_cell_tps == t)[0]
-        # ax1.scatter(true_umap_traj[true_t_idx, 0], true_umap_traj[true_t_idx, 1], label=int(t), color=c, s=20, alpha=1.0)
-        # ax2.scatter(pred_umap_traj[pred_t_idx, 0], pred_umap_traj[pred_t_idx, 1], label=int(t), color=c, s=20, alpha=1.0)
-        print(f'Color: {c}')
-    # ax2.legend(loc="center left", bbox_to_anchor=(1.0, 0.5))
-    # plt.tight_layout()
+        ax1.scatter(true_umap_traj[true_t_idx, 0], true_umap_traj[true_t_idx, 1], label=int(t), color=c, s=20, alpha=1.0)
+        ax2.scatter(pred_umap_traj[pred_t_idx, 0], pred_umap_traj[pred_t_idx, 1], label=int(t), color=c, s=20, alpha=1.0)
+
+    ax2.legend(loc="center left", bbox_to_anchor=(1.0, 0.5))
+    plt.tight_layout()
 
     if title is not None:
         plt.title(title)
