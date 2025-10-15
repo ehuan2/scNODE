@@ -55,8 +55,15 @@ model_colors_dict = {
 def linearSegmentCMap(num_colors, cmap_name="viridis"):
     '''Construct colormap for linearly segmented colors.'''
     cm = plt.get_cmap(cmap_name)
-    color_list = [cm(i//3*3.0/num_colors) for i in range(num_colors)]
-    return color_list
+    if num_colors > 5:
+        return [
+            cm(i//3*3.0/num_colors)
+            for i in range(num_colors)
+        ]
+    return [
+        cm(i/num_colors)
+        for i in range(num_colors)
+    ]
 
 
 def _removeTopRightBorders(ax=None):

@@ -122,7 +122,7 @@ def scNODETrainWithPreTrain(
     all_train_tps = np.concatenate([np.repeat(t, train_data[i].shape[0]) for i, t in enumerate(train_tps)])
 
     if use_continuous:
-        os.makedirs(f'./checkpoints/continuous/')
+        os.makedirs(f'./checkpoints/continuous/', exist_ok=True)
 
     checkpoint_train_path = (
         f'./checkpoints/{data_name}_full_train_split_type_{split_type}_use_hvgs_{use_hvgs}.pth'
@@ -139,7 +139,8 @@ def scNODETrainWithPreTrain(
         return latent_ode_model, None, recon_obs, first_latent_dist, latent_seq
 
     run_name = f"run_{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-    log_dir = os.path.join("./logs/scNODE_runs", run_name)
+    log_dir = os.path.join(f"./logs/scNODE_runs/{data_name}/continuous_{use_continuous}/split_type_{split_type}/", run_name)
+    os.makedirs(log_dir, exist_ok=True)
     writer = SummaryWriter(log_dir)
 
     checkpoint_pretrain_path = (

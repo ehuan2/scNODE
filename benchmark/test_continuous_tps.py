@@ -98,6 +98,9 @@ def prep_splits(ann_data, n_tps, data_name, cell_types):
     return train_data, train_tps, test_data, test_tps, traj_data, tps, traj_cell_types
 
 
+def tps_to_continuous(tps, times_sorted):
+    return torch.FloatTensor([times_sorted[int(tp)] for tp in tps])
+
 def model_training(train_data, train_tps, traj_data, tps, n_genes, split_type, use_hvgs, times_sorted):
     # Model training
     pretrain_iters = 200
@@ -127,7 +130,7 @@ def model_training(train_data, train_tps, traj_data, tps, n_genes, split_type, u
     device = torch.device('cpu')
     latent_ode_model = latent_ode_model.to(device)
 
-    train_tps = [times_sorted[int(tp)] for tp in train_tps]
+    train_tps = tps_to_continuous(train_tps, times_sorted)
     print(f'All the train tps: {train_tps}')
 
     train_tps = train_tps.to(device)
@@ -151,7 +154,7 @@ def model_training(train_data, train_tps, traj_data, tps, n_genes, split_type, u
     )
 
 
-def visualize_umap_embeds(all_recon_obs, traj_data, split_type, cell_type='all'):
+def visualize_umap_embeds(all_recon_obs, traj_data, times_sorted, test_tps, split_type, cell_type='all'):
     from plotting.PlottingUtils import umapWithPCA
     from plotting.visualization import plotPredAllTime, plotPredTestTime
     from optim.evaluation import globalEvaluation
@@ -174,14 +177,14 @@ def visualize_umap_embeds(all_recon_obs, traj_data, split_type, cell_type='all')
     pred_umap_traj = umap_model.transform(pca_model.transform(np.concatenate(reorder_pred_data, axis=0)))
 
     # create the directories if they don't exist
-    os.makedirs(f'figs/{data_name}/{split_type}', exist_ok=True)
+    os.makedirs(f'figs/continuous/{data_name}/{split_type}', exist_ok=True)
 
     plotPredAllTime(
         true_umap_traj,
         pred_umap_traj,
         true_cell_tps,
         pred_cell_tps,
-        fig_name=f'{data_name}/{split_type}/cell_type_{cell_type}_pred_all.png',
+        fig_name=f'continuous/{data_name}/{split_type}/cell_type_{cell_type}_pred_all.png',
         title=f'Reconstruction of {data_name} with {cell_type}'
     )
     # plots the predicted time points reconstruction as well
@@ -191,8 +194,8 @@ def visualize_umap_embeds(all_recon_obs, traj_data, split_type, cell_type='all')
         true_cell_tps,
         pred_cell_tps,
         test_tps.detach().numpy(),
-        fig_name=f'{data_name}/{split_type}/cell_type_{cell_type}_pred_test.png',
-        title=f'Prediction of {data_name}'
+        fig_name=f'continuous/{data_name}/{split_type}/cell_type_{cell_type}_pred_test.png',
+        title=f'Prediction of {data_name} with {cell_type}'
     )
 
     """
@@ -457,6 +460,7 @@ if __name__ == '__main__':
         )
 
     # now let's train the data
+    times_sorted = sorted(ann_data.obs['numerical_age'].unique().tolist())
     latent_ode_model, _, _, _, _ = model_training(
         train_data,
         train_tps,
@@ -465,13 +469,14 @@ if __name__ == '__main__':
         n_genes,
         split_type=split_type,
         use_hvgs=args.hvgs,
-        times_sorted=sorted(ann_data.obs['numerical_age'].unique().tolist())
+        times_sorted=times_sorted
     )
 
     print(f'Finished training...')
-    exit()
 
     n_sim_cells = 2000
+    
+    tps = tps_to_continuous(tps, times_sorted)
     
     # based on all the cells in the first time point, predict the next time points
     # INCLUDING the TEST time points
@@ -483,7 +488,13 @@ if __name__ == '__main__':
     )  # (# cells, # tps, # genes)
 
     if args.v:
-        # visualize_umap_embeds(all_recon_obs, traj_data, split_type=split_type)
+        visualize_umap_embeds(
+            all_recon_obs,
+            traj_data,
+            times_sorted,
+            test_tps,
+            split_type=split_type
+        )
 
         if args.per_cell_type and data_name in [Dataset.HERRING, Dataset.HERRING_GABA]:
             # we want to predict for each type of cell type
@@ -505,10 +516,8 @@ if __name__ == '__main__':
                 ]
 
                 # only predict the relevant time points based on times_sorted
-                tps = torch.FloatTensor([
-                    all_times_sorted.index(time)
-                    for time in times_sorted
-                ])
+                tps = torch.FloatTensor(times_sorted)
+                print(f'Time points: {tps}, test_tps: {test_tps}')
 
                 recon_obs = scNODEPredict(
                     latent_ode_model,
@@ -519,6 +528,8 @@ if __name__ == '__main__':
                 visualize_umap_embeds(
                     recon_obs,
                     cell_traj_data,
+                    times_sorted,
+                    test_tps,
                     split_type=split_type,
                     cell_type=cell_type
                 )
