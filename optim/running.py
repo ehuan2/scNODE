@@ -92,7 +92,8 @@ def scNODETrainWithPreTrain(
     visualize_pretrain=False,
     split_type='three_interpolation',
     use_hvgs=False,
-    use_continuous=False
+    use_continuous=False,
+    use_normalized=False
 ):
     '''
     Train scNODE model.
@@ -121,14 +122,10 @@ def scNODETrainWithPreTrain(
     all_train_data = torch.cat(train_data, dim=0).to(device)
     all_train_tps = np.concatenate([np.repeat(t, train_data[i].shape[0]) for i, t in enumerate(train_tps)])
 
-    if use_continuous:
-        os.makedirs(f'./checkpoints/continuous/', exist_ok=True)
+    dir = f'./checkpoints{"/continuous" if use_continuous else ""}{"/normalized" if use_normalized else ""}'
+    os.makedirs(dir, exist_ok=True)
 
-    checkpoint_train_path = (
-        f'./checkpoints/{data_name}_full_train_split_type_{split_type}_use_hvgs_{use_hvgs}.pth'
-        if not use_continuous else
-        f'./checkpoints/continuous/{data_name}_full_train_split_type_{split_type}_use_hvgs_{use_hvgs}.pth'
-    )
+    checkpoint_train_path = f'{dir}/{data_name}_full_train_split_type_{split_type}_use_hvgs_{use_hvgs}.pth'
     if os.path.exists(checkpoint_train_path):
         latent_ode_model.load_state_dict(torch.load(checkpoint_train_path))
         # latent_ODE model prediction
@@ -139,15 +136,11 @@ def scNODETrainWithPreTrain(
         return latent_ode_model, None, recon_obs, first_latent_dist, latent_seq
 
     run_name = f"run_{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-    log_dir = os.path.join(f"./logs/scNODE_runs/{data_name}/continuous_{use_continuous}/split_type_{split_type}/", run_name)
+    log_dir = os.path.join(f"./logs/scNODE_runs/{data_name}/continuous_{use_continuous}/normalized_{use_normalized}/split_type_{split_type}/", run_name)
     os.makedirs(log_dir, exist_ok=True)
     writer = SummaryWriter(log_dir)
 
-    checkpoint_pretrain_path = (
-        f'./checkpoints/{data_name}_pretrain_split_type_{split_type}_use_hvgs_{use_hvgs}.pth'
-        if not use_continuous else
-        f'./checkpoints/continuous/{data_name}_pretrain_split_type_{split_type}_use_hvgs_{use_hvgs}.pth'
-    )
+    checkpoint_pretrain_path = f'{dir}/{data_name}_pretrain_split_type_{split_type}_use_hvgs_{use_hvgs}.pth'
 
     if os.path.exists(checkpoint_pretrain_path):
         latent_ode_model.load_state_dict(torch.load(checkpoint_pretrain_path))

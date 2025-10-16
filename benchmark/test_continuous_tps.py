@@ -101,7 +101,17 @@ def prep_splits(ann_data, n_tps, data_name, cell_types):
 def tps_to_continuous(tps, times_sorted):
     return torch.FloatTensor([times_sorted[int(tp)] for tp in tps])
 
-def model_training(train_data, train_tps, traj_data, tps, n_genes, split_type, use_hvgs, times_sorted):
+def model_training(
+    train_data,
+    train_tps,
+    traj_data,
+    tps,
+    n_genes,
+    split_type,
+    use_hvgs,
+    times_sorted,
+    use_normalized=False
+):
     # Model training
     pretrain_iters = 200
     pretrain_lr = 1e-3
@@ -150,11 +160,20 @@ def model_training(train_data, train_tps, traj_data, tps, n_genes, split_type, u
         data_name=data_name,
         split_type=split_type,
         use_hvgs=use_hvgs,
-        use_continuous=True
+        use_continuous=True,
+        use_normalized=use_normalized
     )
 
 
-def visualize_umap_embeds(all_recon_obs, traj_data, times_sorted, test_tps, split_type, cell_type='all'):
+def visualize_umap_embeds(
+    all_recon_obs,
+    traj_data,
+    times_sorted,
+    test_tps,
+    split_type,
+    cell_type='all',
+    use_normalized=False
+):
     from plotting.PlottingUtils import umapWithPCA
     from plotting.visualization import plotPredAllTime, plotPredTestTime
     from optim.evaluation import globalEvaluation
@@ -177,14 +196,15 @@ def visualize_umap_embeds(all_recon_obs, traj_data, times_sorted, test_tps, spli
     pred_umap_traj = umap_model.transform(pca_model.transform(np.concatenate(reorder_pred_data, axis=0)))
 
     # create the directories if they don't exist
-    os.makedirs(f'figs/continuous/{data_name}/{split_type}', exist_ok=True)
+    dir = f'continuous{"/normalized" if use_normalized else ""}/{data_name}/{split_type}'
+    os.makedirs(f'figs/{dir}', exist_ok=True)
 
     plotPredAllTime(
         true_umap_traj,
         pred_umap_traj,
         true_cell_tps,
         pred_cell_tps,
-        fig_name=f'continuous/{data_name}/{split_type}/cell_type_{cell_type}_pred_all.png',
+        fig_name=f'{dir}/cell_type_{cell_type}_pred_all.png',
         title=f'Reconstruction of {data_name} with {cell_type}'
     )
     # plots the predicted time points reconstruction as well
@@ -194,7 +214,7 @@ def visualize_umap_embeds(all_recon_obs, traj_data, times_sorted, test_tps, spli
         true_cell_tps,
         pred_cell_tps,
         test_tps.detach().numpy(),
-        fig_name=f'continuous/{data_name}/{split_type}/cell_type_{cell_type}_pred_test.png',
+        fig_name=f'{dir}/cell_type_{cell_type}_pred_test.png',
         title=f'Prediction of {data_name} with {cell_type}'
     )
 
@@ -433,6 +453,7 @@ if __name__ == '__main__':
         default=SplitType.THREE_INTERPOLATION,
         help='split type to choose from'
     )
+    parser.add_argument('-n', '--normalize', action='store_true')
 
     args = parser.parse_args()
 
@@ -444,7 +465,8 @@ if __name__ == '__main__':
         data_name,
         split_type,
         path_to_dir='../',
-        use_hvgs=args.hvgs
+        use_hvgs=args.hvgs,
+        normalize_data=args.normalize
     )
 
     # GABA: 27500 cells x 22500 genes
@@ -469,7 +491,8 @@ if __name__ == '__main__':
         n_genes,
         split_type=split_type,
         use_hvgs=args.hvgs,
-        times_sorted=times_sorted
+        times_sorted=times_sorted,
+        use_normalized=args.normalize
     )
 
     print(f'Finished training...')
@@ -493,7 +516,8 @@ if __name__ == '__main__':
             traj_data,
             times_sorted,
             test_tps,
-            split_type=split_type
+            split_type=split_type,
+            use_normalized=args.normalize
         )
 
         if args.per_cell_type and data_name in [Dataset.HERRING, Dataset.HERRING_GABA]:
@@ -531,7 +555,8 @@ if __name__ == '__main__':
                     times_sorted,
                     test_tps,
                     split_type=split_type,
-                    cell_type=cell_type
+                    cell_type=cell_type,
+                    use_normalized=args.normalize
                 )
 
     if args.traj_view:

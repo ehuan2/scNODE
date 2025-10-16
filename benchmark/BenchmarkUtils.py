@@ -120,7 +120,7 @@ def get_cell_type_name(data_name: Dataset):
         return "cell_type"
     return None
 
-def loadSCData(data_name, split_type, data_dir=None, path_to_dir='../', use_hvgs=False):
+def loadSCData(data_name, split_type, data_dir=None, path_to_dir='../', use_hvgs=False, normalize_data=False):
     '''
     Main function to load scRNA-seq dataset and pre-process it.
     '''
@@ -153,6 +153,12 @@ def loadSCData(data_name, split_type, data_dir=None, path_to_dir='../', use_hvgs
         data_dir = herring_data_dir if data_name == Dataset.HERRING else herring_gaba_data_dir
         ann_data = loadHerringData(data_dir, use_hvgs=use_hvgs)
         processed_data = ann_data.copy()
+
+        # now we normalize the data if true
+        if normalize_data:
+            scanpy.pp.normalize_total(ann_data, target_sum=1e4)
+            scanpy.pp.log1p(ann_data)
+
         cell_types = processed_data.obs.cell_type.values
     else:
         raise ValueError("Unknown data name.")
