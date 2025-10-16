@@ -93,7 +93,8 @@ def scNODETrainWithPreTrain(
     split_type='three_interpolation',
     use_hvgs=False,
     use_continuous=False,
-    use_normalized=False
+    use_normalized=False,
+    cell_type=''
 ):
     '''
     Train scNODE model.
@@ -122,7 +123,7 @@ def scNODETrainWithPreTrain(
     all_train_data = torch.cat(train_data, dim=0).to(device)
     all_train_tps = np.concatenate([np.repeat(t, train_data[i].shape[0]) for i, t in enumerate(train_tps)])
 
-    dir = f'./checkpoints{"/continuous" if use_continuous else ""}{"/normalized" if use_normalized else ""}'
+    dir = f'./checkpoints{"/continuous" if use_continuous else ""}{"/normalized" if use_normalized else ""}{f"/cell_type_{cell_type}" if cell_type != "" else ""}'
     os.makedirs(dir, exist_ok=True)
 
     checkpoint_train_path = f'{dir}/{data_name}_full_train_split_type_{split_type}_use_hvgs_{use_hvgs}.pth'
