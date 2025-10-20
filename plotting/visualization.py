@@ -16,24 +16,34 @@ from plotting import _removeAllBorders, _removeTopRightBorders
 
 def plotPredAllTime(true_umap_traj, pred_umap_traj, true_cell_tps, pred_cell_tps, fig_name=None, title=None):
     '''Plot predictions at all timepoints.'''
-    unique_tps = np.unique(true_cell_tps).astype(int).tolist()
+    unique_tps = np.unique(true_cell_tps).tolist()
     n_tps = len(unique_tps)
     color_list = linearSegmentCMap(n_tps, "viridis")
     # color_list = Vivid_10.mpl_colors
+    num_cols = len(unique_tps) // 7
+
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
     ax1.set_title("True Data", fontsize=15)
     ax2.set_title("Predictions", fontsize=15)
     for i, t in enumerate(unique_tps):
         true_t_idx = np.where(true_cell_tps == t)[0]
         pred_t_idx = np.where(pred_cell_tps == t)[0]
-        ax1.scatter(true_umap_traj[true_t_idx, 0], true_umap_traj[true_t_idx, 1], label=t, color=color_list[i], s=20, alpha=1.0)
-        ax2.scatter(pred_umap_traj[pred_t_idx, 0], pred_umap_traj[pred_t_idx, 1], label=t, color=color_list[i], s=20, alpha=1.0)
-    ax2.legend(loc="center left", bbox_to_anchor=(1.0, 0.5))
+        ax1.scatter(true_umap_traj[true_t_idx, 0], true_umap_traj[true_t_idx, 1], label=f'{t:.3g}', color=color_list[i], s=20, alpha=1.0)
+        ax2.scatter(pred_umap_traj[pred_t_idx, 0], pred_umap_traj[pred_t_idx, 1], label=f'{t:.3g}', color=color_list[i], s=20, alpha=1.0)
+
+    ax2.legend(
+        loc="center left",
+        bbox_to_anchor=(1.1, 0.5),
+        ncol=num_cols
+    )
     # plt.tight_layout()
+
+    # fig.subplots_adjust(right=0.5 * num_cols)
+
     if title is not None:
         plt.title(title)
     if fig_name is not None:
-        plt.savefig(f'figs/{fig_name}')
+        plt.savefig(f'figs/{fig_name}', bbox_inches='tight')
     else:
         plt.show()
 
@@ -55,8 +65,8 @@ def plotPredTestTime(true_umap_traj, pred_umap_traj, true_cell_tps, pred_cell_tp
         c = color_list[i]
         true_t_idx = np.where(true_cell_tps == t)[0]
         pred_t_idx = np.where(pred_cell_tps == t)[0]
-        ax1.scatter(true_umap_traj[true_t_idx, 0], true_umap_traj[true_t_idx, 1], label=int(t), color=c, s=20, alpha=1.0)
-        ax2.scatter(pred_umap_traj[pred_t_idx, 0], pred_umap_traj[pred_t_idx, 1], label=int(t), color=c, s=20, alpha=1.0)
+        ax1.scatter(true_umap_traj[true_t_idx, 0], true_umap_traj[true_t_idx, 1], label=f'{t:.3g}', color=c, s=20, alpha=1.0)
+        ax2.scatter(pred_umap_traj[pred_t_idx, 0], pred_umap_traj[pred_t_idx, 1], label=f'{t:.3g}', color=c, s=20, alpha=1.0)
 
     ax2.legend(loc="center left", bbox_to_anchor=(1.0, 0.5))
     plt.tight_layout()

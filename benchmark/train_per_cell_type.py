@@ -8,6 +8,7 @@ import numpy as np
 import scanpy as sc
 import torch
 import torch.distributed as dist
+import pickle
 
 from datetime import datetime
 from torch import nn
@@ -67,7 +68,6 @@ def prep_splits_herring(ann_data, n_tps, data_name, cell_type):
     traj_data = [torch.FloatTensor(data[np.where(cell_tps == t)[0], :].toarray()) for t in times_sorted]
 
     train_data, test_data = splitBySpec(traj_data, train_tps, test_tps)
-
 
     tps = torch.FloatTensor(all_tps)
     train_tps = torch.FloatTensor(train_tps)
@@ -181,7 +181,9 @@ def visualize_umap_embeds(
     test_tps,
     split_type,
     cell_type='all',
-    use_normalized=False
+    use_normalized=False,
+    tps=None,
+    data_name=Dataset.HERRING
 ):
     from plotting.PlottingUtils import umapWithPCA
     from plotting.visualization import plotPredAllTime, plotPredTestTime
@@ -193,14 +195,33 @@ def visualize_umap_embeds(
     true_data = [each.detach().numpy() for each in traj_data]
     
     # basically create true_cell_tps and pred_cell_tps which will be annotations for both the true data and predicted ones
-    true_cell_tps = np.concatenate([np.repeat(t, each.shape[0]) for t, each in enumerate(true_data)])
-    pred_cell_tps = np.concatenate([np.repeat(t, all_recon_obs[:, t, :].shape[0]) for t in range(all_recon_obs.shape[1])])
+    true_cell_tps = np.concatenate([np.repeat(tps[t], each.shape[0]) for t, each in enumerate(true_data)])
+    pred_cell_tps = np.concatenate([np.repeat(tps[t], all_recon_obs[:, t, :].shape[0]) for t in range(all_recon_obs.shape[1])])
 
     # we have now an array of length t, of 2000 cells x genes
     reorder_pred_data = [all_recon_obs[:, t, :] for t in range(all_recon_obs.shape[1])]
 
-    # then we map the umap of the true data
-    true_umap_traj, umap_model, pca_model = umapWithPCA(np.concatenate(true_data, axis=0), n_neighbors=50, min_dist=0.1, pca_pcs=50)
+    # get PCA model if does not exist, otherwise, let's calculate and save it
+    # do it per single-cell type and per 
+    checkpoint_dir = f'./checkpoints/vis_embeds/{data_name}/{split_type}/{cell_type}'
+    vis_embed_checkpoint_path = f'{checkpoint_dir}/vis_embed.pkl'
+    if not os.path.exists(vis_embed_checkpoint_path):
+        true_umap_traj, umap_model, pca_model = umapWithPCA(np.concatenate(true_data, axis=0), n_neighbors=50, min_dist=0.1, pca_pcs=50)
+
+        # now we save it
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        with open(vis_embed_checkpoint_path, 'wb') as umap_file:
+            pickle.dump({'pca': pca_model, 'umap': umap_model}, umap_file)
+        print(f'Successfully saved visualization embeddings to {vis_embed_checkpoint_path}')
+
+    else:
+        with open(vis_embed_checkpoint_path, 'rb') as umap_file:
+            models = pickle.load(umap_file)
+        pca_model = models['pca']
+        umap_model = models['umap']
+        true_umap_traj = umap_model.transform(pca_model.transform(np.concatenate(true_data, axis=0)))
+        print(f'Using the saved visualization embeddings from {vis_embed_checkpoint_path}')
+
     # and then the predicted one
     pred_umap_traj = umap_model.transform(pca_model.transform(np.concatenate(reorder_pred_data, axis=0)))
 
@@ -466,6 +487,9 @@ def train_and_visualize(
         n_cells=n_sim_cells
     )  # (# cells, # tps, # genes)
 
+    test_tps = tps_to_continuous(test_tps, all_times_sorted)
+    print(f'test tps under train_and_visualize: {test_tps}')
+
     if args.v:
         # only predict the relevant time points based on times_sorted
         visualize_umap_embeds(
@@ -474,7 +498,9 @@ def train_and_visualize(
             test_tps,
             split_type=split_type,
             cell_type=cell_type,
-            use_normalized=args.normalize
+            use_normalized=args.normalize,
+            tps=tps,
+            data_name=data_name
         )
 
     if args.traj_view:
