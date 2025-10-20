@@ -42,7 +42,10 @@ def tps_to_continuous(tps, times_sorted):
 
 def prep_splits_herring(ann_data, n_tps, data_name, cell_type):
     # preps the data per cell type
-    cell_ann_data = ann_data[ann_data.obs['major_clust'] == cell_type].copy()
+    if cell_type != '':
+        cell_ann_data = ann_data[ann_data.obs['major_clust'] == cell_type].copy()
+    else:
+        cell_ann_data = ann_data.copy()
 
     # now we need to create an order list of cell time points
     # and create an index for it
@@ -183,7 +186,8 @@ def visualize_umap_embeds(
     cell_type='all',
     use_normalized=False,
     tps=None,
-    data_name=Dataset.HERRING
+    data_name=Dataset.HERRING,
+    train_from_all=False
 ):
     from plotting.PlottingUtils import umapWithPCA
     from plotting.visualization import plotPredAllTime, plotPredTestTime
@@ -226,7 +230,7 @@ def visualize_umap_embeds(
     pred_umap_traj = umap_model.transform(pca_model.transform(np.concatenate(reorder_pred_data, axis=0)))
 
     # create the directories if they don't exist
-    dir = f'continuous{"/normalized" if use_normalized else ""}/{data_name}/{split_type}/per_cell_type_train'
+    dir = f'continuous{"/normalized" if use_normalized else ""}/{data_name}/{split_type}/{"per_cell_type_train" if not train_from_all else "all_cell_types_train"}'
     os.makedirs(f'figs/{dir}', exist_ok=True)
 
     plotPredAllTime(
@@ -497,15 +501,18 @@ def train_and_visualize(
             traj_data,
             test_tps,
             split_type=split_type,
-            cell_type=cell_type,
+            cell_type=cell_type if cell_type != '' else 'all',
             use_normalized=args.normalize,
             tps=tps,
-            data_name=data_name
+            data_name=data_name,
+            train_from_all=cell_type == ''
         )
 
     if args.traj_view:
         print(tps)
         predict_cell_traj(all_recon_obs, traj_data, train_data, train_tps, tps, data_name)
+
+    return latent_ode_model
 
 
 if __name__ == '__main__':
@@ -551,6 +558,7 @@ if __name__ == '__main__':
     # so we add an argument to train a specific cell type, if it doesn't exist
     # then we train all cell types
     parser.add_argument('--cell_type_to_train', type=str, default="")
+    parser.add_argument('--cell_type_to_vis', type=str, default="")
 
     args = parser.parse_args()
 
@@ -573,28 +581,71 @@ if __name__ == '__main__':
     # Think about the total number of cells per timepoint
     # now we want to split it per cell-type
     if args.cell_type_to_train == '':
-        # train all of the data
-        for cell_type in major_clust:
-            cell_ann_data, train_data, train_tps, test_data, test_tps, traj_data, tps, all_times_sorted =\
-                prep_splits(
-                    ann_data,
-                    n_tps,
-                    data_name,
-                    cell_type=cell_type
-                )
-            train_and_visualize(
-                train_data,
-                train_tps,
-                traj_data,
-                tps,
-                n_genes,
-                args,
-                test_tps,
-                split_type,
+        # train all of the data, i.e. all of them together
+        cell_ann_data, train_data, train_tps, test_data, test_tps, traj_data, tps, all_times_sorted =\
+            prep_splits(
+                ann_data,
+                n_tps,
                 data_name,
-                cell_type=cell_type,
-                all_times_sorted=all_times_sorted
+                cell_type=''
             )
+
+        latent_ode_model = train_and_visualize(
+            train_data,
+            train_tps,
+            traj_data,
+            tps,
+            n_genes,
+            args,
+            test_tps,
+            split_type,
+            data_name,
+            cell_type='',
+            all_times_sorted=all_times_sorted
+        )
+        
+        if args.cell_type_to_vis != '':
+            cell_type = args.cell_type_to_vis
+            cell_type_data = ann_data[ann_data.obs['major_clust'] == cell_type].copy()
+            cell_tps = cell_type_data.obs["numerical_age"]
+            times_sorted = sorted(
+                cell_type_data.obs['numerical_age'].unique().tolist()
+            )
+
+            # cell type for traj data at ...
+            cell_traj_data = [
+                torch.FloatTensor(
+                    cell_type_data.X[np.where(cell_tps == t)[0], :].toarray()
+                )
+                for t in times_sorted
+            ]
+
+            # only predict the relevant time points based on times_sorted
+            tps = tps_to_continuous(tps, all_times_sorted)
+
+            test_tps = tps_to_continuous(test_tps, all_times_sorted)
+            print(f'test tps under train_and_visualize: {test_tps}')
+
+            n_sim_cells = 2000
+
+            recon_obs = scNODEPredict(
+                latent_ode_model,
+                cell_traj_data[0],
+                tps,
+                n_cells=n_sim_cells
+            )
+            visualize_umap_embeds(
+                recon_obs,
+                cell_traj_data,
+                test_tps,
+                split_type=split_type,
+                cell_type=cell_type,
+                use_normalized=args.normalize,
+                tps=tps,
+                data_name=data_name,
+                train_from_all=True
+            )
+
     else:
         cell_type = args.cell_type_to_train
         print(f'Training for cell type: {cell_type}')
