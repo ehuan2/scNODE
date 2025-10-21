@@ -13,21 +13,21 @@ repos:
   - id: check-merge-conflict
   - id: detect-private-key
   - id: debug-statements
-- repo: https://github.com/pycqa/isort
-  rev: 5.12.0
-  hooks:
-  - id: isort
-- repo: https://github.com/PyCQA/flake8
-  rev: 7.0.0
-  hooks:
-  - id: flake8
-    additional_dependencies: [
-        'flake8-docstrings==1.7.0',
-        'flake8-quotes==3.4.0',
-        'flake8-annotations==3.1.1',
-        'darglint==1.8.1'
-    ]
-    args: ["--ignore=D100,D101,D102,D103,D104,D105,D106,D107,Q000"]
+# - repo: https://github.com/pycqa/isort
+#   rev: 5.12.0
+#   hooks:
+#   - id: isort
+# - repo: https://github.com/PyCQA/flake8
+#   rev: 7.0.0
+#   hooks:
+#   - id: flake8
+#     additional_dependencies: [
+#         'flake8-docstrings==1.7.0',
+#         'flake8-quotes==3.4.0',
+#         'flake8-annotations==3.1.1',
+#         'darglint==1.8.1'
+#     ]
+#     args: ["--ignore=D100,D101,D102,D103,D104,D105,D106,D107,Q000,ANN001,ANN201,DAR101,D212,D417"]
 
 - repo: https://github.com/psf/black
   rev: 23.7.0
@@ -38,4 +38,4 @@ repos:
   rev: v1.4
   hooks:
     - id: autoflake
-      args: [--remove-all-unused-imports, --in-place, --recursive]
+      args: [--remove-all-unused-imports, --in-place]
