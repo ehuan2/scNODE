@@ -10,7 +10,8 @@
 # PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py -v -d herring --hvgs --per_cell_type -s remove_recovery --cell_type_to_train MGE_dev
 # PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py -v -d herring --hvgs --per_cell_type -s remove_recovery --normalize --cell_type_to_train MGE_dev
 
-PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_decoder.py -v -d herring --hvgs --per_cell_type -s remove_recovery --normalize --vis_pred --metric_only
+# PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_decoder.py -v -d herring --hvgs --per_cell_type -s remove_recovery --normalize --vis_pred --metric_only
+PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_decoder.py -v -d herring --hvgs --per_cell_type -s remove_recovery --normalize --vis_all_embeds --metric_only
 
 
 ############################## Training for a bunch of different cell types #########################

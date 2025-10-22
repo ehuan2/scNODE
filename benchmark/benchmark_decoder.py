@@ -279,7 +279,6 @@ def visualize_pred_embeds(ann_data, latent_ode_model, tps, metric_only):
 
     metrics = {}
     metrics["ari"] = {}
-    metrics["kbet"] = {}
     for t_idx, tp_embed in enumerate(latent_embeddings):
         # tp_embed is cell_type x (cells, genes)
         cell_type_labels = np.concatenate(
@@ -329,7 +328,6 @@ def visualize_pred_embeds(ann_data, latent_ode_model, tps, metric_only):
         )
     metrics["ari"]["all"] = evaluate_ari(final_embeds, final_labels)
 
-    # todo: add in kbet metrics as well
     with open(f"./logs/pred_embed_metrics.txt", "w") as f:
         pprint.pprint(metrics, stream=f, sort_dicts=True)
     print(f"Finished writing ARI metrics for predicted embeddings")
@@ -340,14 +338,16 @@ def visualize_all_embeds(ann_data, latent_ode_model, metric_only):
     Takes the model given, takes its embeddings and calculate
     its umap visualization, its ARI and its kBET
     """
-    exit()
-    # TODO: verify the following:
     data = ann_data.X.toarray()
-    labels = ann_data.obs["major_clust"].toarray()
+    labels = ann_data.obs["major_clust"].to_numpy()
     embeddings, _ = latent_ode_model.vaeReconstruct([data])
+    embeddings = embeddings[0].detach().numpy()  # because we're only doing it for one
+
+    metrics = {}
+    metrics["ari"] = {}
 
     # embeddings should be cells (140000) x 50, (cells,)
-    print(embeddings[0].shape, labels.shape)
+    print(embeddings.shape, labels.shape)
     if not metric_only:
         visualize_cluster_embeds(
             embeddings,
@@ -359,6 +359,12 @@ def visualize_all_embeds(ann_data, latent_ode_model, metric_only):
             is_embedding=True,
             title=f"Encoder cell type embeddings for all",
         )
+
+    metrics["ari"]["all"] = evaluate_ari(embeddings, labels)
+    with open(f"./logs/embed_metrics.txt", "w") as f:
+        pprint.pprint(metrics, stream=f, sort_dicts=True)
+
+    print(f"Finish measuring the encoder on all cells")
 
 
 if __name__ == "__main__":
