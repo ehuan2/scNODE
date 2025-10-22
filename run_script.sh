@@ -1,18 +1,34 @@
 #!/bin/bash
-# nohup bash ../discord.sh PYTHONPATH=".:$PYTHONPATH" python benchmark/test_dataset.py -v -d herring --hvgs --per_cell_type -s remove_recovery &
-# nohup bash ../discord.sh PYTHONPATH=".:$PYTHONPATH" python benchmark/test_dataset.py -v -d herring_gaba --hvgs --per_cell_type -s three_interpolation &
-# nohup bash ../discord.sh PYTHONPATH=".:$PYTHONPATH" python benchmark/test_dataset.py -v -d wot -s remove_recovery &
-# nohup bash ../discord.sh PYTHONPATH=".:$PYTHONPATH" python benchmark/test_continuous_tps.py -v -d herring --hvgs --per_cell_type -s remove_recovery --normalize &
-# nohup bash ../discord.sh PYTHONPATH=".:$PYTHONPATH" python benchmark/test_continuous_tps.py -v -d herring_gaba --hvgs --per_cell_type -s three_interpolation --normalize &
-# nohup bash ../discord.sh PYTHONPATH=".:$PYTHONPATH" python benchmark/test_dataset.py -v -d herring_gaba --hvgs --per_cell_type -s three_interpolation &
 # nohup bash ../discord.sh PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py -v -d herring --hvgs --per_cell_type -s remove_recovery --normalize --cell_type_to_train OPC &
 # nohup bash ../discord.sh PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py -v -d herring --hvgs --per_cell_type -s remove_recovery --normalize --cell_type_to_train SST &
 # PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py -v -d herring --hvgs --per_cell_type -s remove_recovery --cell_type_to_train MGE_dev
 # PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py -v -d herring --hvgs --per_cell_type -s remove_recovery --normalize --cell_type_to_train MGE_dev
 
 # PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_decoder.py -v -d herring --hvgs --per_cell_type -s remove_recovery --normalize --vis_pred --metric_only
-PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_decoder.py -v -d herring --hvgs --per_cell_type -s remove_recovery --normalize --vis_all_embeds --metric_only
+# PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_decoder.py -v -d herring --hvgs --per_cell_type -s remove_recovery --normalize --vis_all_embeds --metric_only
 
+# kl coefficients to test out: 0.0, 0.1, 0.2, 0.5, 0.8, 1.0
+
+# nohup bash ../discord.sh PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py\
+#  -d herring --hvgs -s remove_recovery --normalize --kl_coeff 1.0 &
+
+# PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py\
+#  -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.0 --vis_all_embeds --pretrain_only
+
+for KL in 0.01 0.05 0.1
+do
+    echo "Running train_per_cell_type.py with kl_coeff=${KL}"
+    PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py \
+        -d herring --hvgs -s remove_recovery --normalize --kl_coeff ${KL}
+
+    echo "Running benchmark_encoder.py with kl_coeff=${KL}"
+    PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
+        -d herring --hvgs -s remove_recovery --normalize --kl_coeff ${KL} \
+        --vis_all_embeds --pretrain_only
+
+    echo "Finished KL: ${KL}"
+    echo "--------------------------------"
+done
 
 ############################## Training for a bunch of different cell types #########################
 # Define the two flags

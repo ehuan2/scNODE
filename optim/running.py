@@ -87,11 +87,19 @@ def constructscNODEModel(
 
 
 def get_checkpoint_train_path(
-    use_continuous, use_normalized, cell_type, data_name, use_hvgs, split_type
+    use_continuous,
+    use_normalized,
+    cell_type,
+    data_name,
+    use_hvgs,
+    split_type,
+    kl_coeff,
+    pretrain_only,
 ):
     dir = f'./checkpoints{"/continuous" if use_continuous else ""}{"/normalized" if use_normalized else ""}{f"/cell_type_{cell_type}" if cell_type != "" else ""}'
-    return (
-        f"{dir}/{data_name}_full_train_split_type_{split_type}_use_hvgs_{use_hvgs}.pth"
+    dir += f"/kl_coeff_{kl_coeff}" if kl_coeff != 0.0 else ""
+    return dir, (
+        f"{dir}/{data_name}_{'full_train' if not pretrain_only else 'pretrain'}_split_type_{split_type}_use_hvgs_{use_hvgs}.pth"
     )
 
 
@@ -146,12 +154,18 @@ def scNODETrainWithPreTrain(
         [np.repeat(t, train_data[i].shape[0]) for i, t in enumerate(train_tps)]
     )
 
-    dir = f'./checkpoints{"/continuous" if use_continuous else ""}{"/normalized" if use_normalized else ""}{f"/cell_type_{cell_type}" if cell_type != "" else ""}'
+    dir, checkpoint_train_path = get_checkpoint_train_path(
+        use_continuous=use_continuous,
+        use_normalized=use_normalized,
+        cell_type=cell_type,
+        data_name=data_name,
+        use_hvgs=use_hvgs,
+        split_type=split_type,
+        kl_coeff=kl_coeff,
+        pretrain_only=False,
+    )
     os.makedirs(dir, exist_ok=True)
 
-    checkpoint_train_path = (
-        f"{dir}/{data_name}_full_train_split_type_{split_type}_use_hvgs_{use_hvgs}.pth"
-    )
     if os.path.exists(checkpoint_train_path):
         latent_ode_model.load_state_dict(torch.load(checkpoint_train_path))
         # latent_ODE model prediction
@@ -164,15 +178,26 @@ def scNODETrainWithPreTrain(
         return latent_ode_model, None, recon_obs, first_latent_dist, latent_seq
 
     run_name = f"run_{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    log_dir = f"./logs/scNODE_runs/{data_name}/continuous_{use_continuous}/normalized_{use_normalized}/split_type_{split_type}"
+    log_dir += f"/kl_coeff_{kl_coeff}" if kl_coeff != 0.0 else ""
     log_dir = os.path.join(
-        f"./logs/scNODE_runs/{data_name}/continuous_{use_continuous}/normalized_{use_normalized}/split_type_{split_type}/",
+        log_dir,
         run_name,
     )
     os.makedirs(log_dir, exist_ok=True)
     writer = SummaryWriter(log_dir)
 
-    checkpoint_pretrain_path = (
-        f"{dir}/{data_name}_pretrain_split_type_{split_type}_use_hvgs_{use_hvgs}.pth"
+    print(f"Running checkpoint training for: {checkpoint_train_path}")
+
+    _, checkpoint_pretrain_path = get_checkpoint_train_path(
+        use_continuous=use_continuous,
+        use_normalized=use_normalized,
+        cell_type=cell_type,
+        data_name=data_name,
+        use_hvgs=use_hvgs,
+        split_type=split_type,
+        kl_coeff=kl_coeff,
+        pretrain_only=True,
     )
 
     if os.path.exists(checkpoint_pretrain_path):
@@ -226,6 +251,7 @@ def scNODETrainWithPreTrain(
         torch.save(latent_ode_model.state_dict(), checkpoint_pretrain_path)
 
     print(f"Latent ODE model is ready for visualization...")
+    exit()
 
     #####################################
     # VAE reconstruction visualization -- if they match it's a good reconstruction! Else, it's pretty shit

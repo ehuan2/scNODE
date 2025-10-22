@@ -1,6 +1,5 @@
 # test_dataset.py
 # used to test the data and examine the dataset
-import argparse
 import logging
 import pickle
 from datetime import datetime
@@ -12,11 +11,11 @@ import torch
 
 from benchmark.BenchmarkUtils import (
     Dataset,
-    SplitType,
     loadSCData,
     splitBySpec,
     tpSplitInd,
     tunedOurPars,
+    create_parser,
 )
 from optim.running import constructscNODEModel, scNODEPredict, scNODETrainWithPreTrain
 
@@ -149,6 +148,7 @@ def model_training(
     times_sorted,
     use_normalized=False,
     cell_type="",
+    args={},
 ):
     # Model training
     pretrain_iters = 200
@@ -192,6 +192,7 @@ def model_training(
         iters=iters,
         batch_size=batch_size,
         lr=lr,
+        kl_coeff=args.kl_coeff,
         pretrain_iters=pretrain_iters,
         pretrain_lr=pretrain_lr,
         device=device,
@@ -522,6 +523,7 @@ def train_and_visualize(
         times_sorted=all_times_sorted,
         use_normalized=args.normalize,
         cell_type=cell_type,
+        args=args,
     )
 
     print(f"Finished training...")
@@ -574,39 +576,7 @@ if __name__ == "__main__":
         datefmt="%Y-%m-%d %H:%M:%S",  # Time format
     )
 
-    parser = argparse.ArgumentParser()
-    dataset_sel = [dataset.value for dataset in list(Dataset)]
-    parser.add_argument(
-        "-d",
-        "--dataset",
-        type=Dataset,
-        choices=list(Dataset),
-        metavar=f"{dataset_sel}",
-        default=Dataset.HERRING_GABA,
-        help="The dataset to evaluate from",
-    )
-    parser.add_argument("-v", action="store_true")
-    parser.add_argument("--traj_view", action="store_true")
-    parser.add_argument("--hvgs", action="store_true")
-    parser.add_argument("--per_cell_type", action="store_true")
-
-    split_type_sel = [split_type.value for split_type in list(SplitType)]
-    parser.add_argument(
-        "-s",
-        "--split_type",
-        type=SplitType,
-        choices=list(SplitType),
-        metavar=f"{split_type_sel}",
-        default=SplitType.THREE_INTERPOLATION,
-        help="split type to choose from",
-    )
-    parser.add_argument("-n", "--normalize", action="store_true")
-
-    # so we add an argument to train a specific cell type, if it doesn't exist
-    # then we train all cell types
-    parser.add_argument("--cell_type_to_train", type=str, default="")
-    parser.add_argument("--cell_type_to_vis", type=str, default="")
-
+    parser = create_parser()
     args = parser.parse_args()
 
     data_name = args.dataset

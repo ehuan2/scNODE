@@ -2,7 +2,6 @@
 # used to benchmark the decoder and encoder
 # test_dataset.py
 # used to test the data and examine the dataset
-import argparse
 import os
 import pickle
 
@@ -10,7 +9,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from benchmark.BenchmarkUtils import Dataset, SplitType, loadSCData, tunedOurPars
+from benchmark.BenchmarkUtils import (
+    loadSCData,
+    tunedOurPars,
+    create_parser,
+)
 from optim.running import constructscNODEModel, get_checkpoint_train_path
 from plotting.PlottingUtils import umapWithPCA, umapWithoutPCA
 import scanpy as sc
@@ -39,13 +42,15 @@ def load_model(n_genes, split_type, args):
     device = torch.device("cpu")
     latent_ode_model = latent_ode_model.to(device)
 
-    checkpoint_path = get_checkpoint_train_path(
-        cell_type=args.cell_type_to_train,
+    _, checkpoint_path = get_checkpoint_train_path(
         use_continuous=True,
-        use_hvgs=args.hvgs,
         use_normalized=args.normalize,
+        cell_type=args.cell_type_to_train,
         data_name=args.dataset,
+        use_hvgs=args.hvgs,
         split_type=args.split_type.value,
+        kl_coeff=args.kl_coeff,
+        pretrain_only=args.pretrain_only,
     )
 
     if not os.path.exists(checkpoint_path):
@@ -90,6 +95,7 @@ def visualize_cluster_embeds(
     split_type,
     t,
     is_pred,
+    args,
     is_embedding=False,
     title=None,
 ):
@@ -106,11 +112,15 @@ def visualize_cluster_embeds(
         If provided, saves figure to figs/{fig_name}. Otherwise, shows the plot.
     """
     fig_dir = f"figs/embedding/{data_name}/{split_type}/{'pred' if is_pred else ('embed' if is_embedding else 'true')}"
+    fig_dir += f"/kl_coeff_{args.kl_coeff}" if args.kl_coeff != 0.0 else ""
+    fig_dir += f"_pretrain_only" if args.pretrain_only else ""
     os.makedirs(fig_dir, exist_ok=True)
     fig_path = f"{fig_dir}/t_{f'{t:.3f}' if not isinstance(t, str) else t}.png"
 
     # --- Extract data ---
     save_dir = f"./checkpoints/vis_embeds/{data_name}/{split_type}/timepoints/{'pred' if is_pred else ('embed' if is_embedding else 'true')}/t_{t}"
+    save_dir += f"/kl_coeff_{args.kl_coeff}" if args.kl_coeff != 0.0 else ""
+    save_dir += f"_pretrain_only" if args.pretrain_only else ""
     save_path = os.path.join(save_dir, "vis_embed.pkl")
 
     if os.path.exists(save_path):
@@ -188,7 +198,7 @@ def visualize_cluster_embeds(
         plt.show()
 
 
-def visualize_timepoint_embeds(ann_data, times_sorted, data_name, split_type):
+def visualize_timepoint_embeds(ann_data, times_sorted, data_name, split_type, args):
     # first thing to do is to loop over all the tps
     for t in [*times_sorted]:
         timepoint_data = ann_data[ann_data.obs["numerical_age"] == t].copy()
@@ -204,6 +214,7 @@ def visualize_timepoint_embeds(ann_data, times_sorted, data_name, split_type):
             data_name,
             split_type,
             t,
+            args=args,
             is_pred=False,
             title=(f"True cell type embeddings for timepoint {t:.3g}"),
         )
@@ -218,6 +229,7 @@ def visualize_timepoint_embeds(ann_data, times_sorted, data_name, split_type):
         data_name,
         split_type,
         "all",
+        args=args,
         is_pred=False,
         title=(f"True cell type embeddings for all"),
     )
@@ -238,7 +250,7 @@ def evaluate_ari(cell_embed, cell_labels):
     return ari
 
 
-def visualize_pred_embeds(ann_data, latent_ode_model, tps, metric_only):
+def visualize_pred_embeds(ann_data, latent_ode_model, tps, metric_only, args):
     # Can do this by aggregating together the cell predictions
     # i.e. I predict per cell type, the trajectory of 200 cells
     # then I visualize them altogether and see what that looks like
@@ -303,6 +315,7 @@ def visualize_pred_embeds(ann_data, latent_ode_model, tps, metric_only):
                 data_name,
                 split_type,
                 timepoint,
+                args=args,
                 is_pred=True,
                 title=f"Predicted encoder cell type embeddings for timepoint {timepoint:.3f}",
             )
@@ -323,17 +336,21 @@ def visualize_pred_embeds(ann_data, latent_ode_model, tps, metric_only):
             data_name,
             split_type,
             "all",
+            args=args,
             is_pred=True,
             title=f"Predicted encoder cell type embeddings for all",
         )
     metrics["ari"]["all"] = evaluate_ari(final_embeds, final_labels)
 
-    with open(f"./logs/pred_embed_metrics.txt", "w") as f:
+    with open(f"./logs/pred_embed_metrics.txt", "a") as f:
+        f.write(
+            f"Running for KL coefficient: {args.kl_coeff} Pretrain only: {args.pretrain_only}\n"
+        )
         pprint.pprint(metrics, stream=f, sort_dicts=True)
     print(f"Finished writing ARI metrics for predicted embeddings")
 
 
-def visualize_all_embeds(ann_data, latent_ode_model, metric_only):
+def visualize_all_embeds(ann_data, latent_ode_model, metric_only, args):
     """
     Takes the model given, takes its embeddings and calculate
     its umap visualization, its ARI and its kBET
@@ -355,55 +372,29 @@ def visualize_all_embeds(ann_data, latent_ode_model, metric_only):
             data_name,
             split_type,
             "all",
+            args=args,
             is_pred=False,
             is_embedding=True,
             title=f"Encoder cell type embeddings for all",
         )
 
     metrics["ari"]["all"] = evaluate_ari(embeddings, labels)
-    with open(f"./logs/embed_metrics.txt", "w") as f:
+    with open(f"./logs/embed_metrics.txt", "a") as f:
+        f.write(
+            f"Running for KL coefficient: {args.kl_coeff}, Pretrain Only: {args.pretrain_only}\n"
+        )
         pprint.pprint(metrics, stream=f, sort_dicts=True)
 
     print(f"Finish measuring the encoder on all cells")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    dataset_sel = [dataset.value for dataset in list(Dataset)]
-    parser.add_argument(
-        "-d",
-        "--dataset",
-        type=Dataset,
-        choices=list(Dataset),
-        metavar=f"{dataset_sel}",
-        default=Dataset.HERRING_GABA,
-        help="The dataset to evaluate from",
-    )
-    parser.add_argument("-v", action="store_true")
-    parser.add_argument("--traj_view", action="store_true")
-    parser.add_argument("--hvgs", action="store_true")
-    parser.add_argument("--per_cell_type", action="store_true")
-
-    split_type_sel = [split_type.value for split_type in list(SplitType)]
-    parser.add_argument(
-        "-s",
-        "--split_type",
-        type=SplitType,
-        choices=list(SplitType),
-        metavar=f"{split_type_sel}",
-        default=SplitType.THREE_INTERPOLATION,
-        help="split type to choose from",
-    )
-    parser.add_argument("-n", "--normalize", action="store_true")
+    parser = create_parser()
     parser.add_argument("--vis_true", action="store_true")
     parser.add_argument("--vis_pred", action="store_true")
     parser.add_argument("--vis_all_embeds", action="store_true")
     parser.add_argument("--metric_only", action="store_true")
-
-    # so we add an argument to train a specific cell type, if it doesn't exist
-    # then we train all cell types
-    parser.add_argument("--cell_type_to_train", type=str, default="")
-    parser.add_argument("--cell_type_to_vis", type=str, default="")
+    parser.add_argument("--pretrain_only", action="store_true")
 
     args = parser.parse_args()
 
@@ -432,15 +423,19 @@ if __name__ == "__main__":
     # umap_embeds = timesteps x (umap_embed, pca_embed)
     # returns a umap embedding and a pca embedding per time point
     if args.vis_true:
-        visualize_timepoint_embeds(ann_data, times_sorted, data_name, split_type)
+        visualize_timepoint_embeds(
+            ann_data, times_sorted, data_name, split_type, args=args
+        )
 
     # 2) visualize the umap embeddings of the learned embeddings at a time point, colour per cell type
     if args.vis_pred:
         visualize_pred_embeds(
-            ann_data, latent_ode_model, tps, metric_only=args.metric_only
+            ann_data, latent_ode_model, tps, metric_only=args.metric_only, args=args
         )
 
     # 3) Measure how good the encoder is generally (encode all the ann_data measure its ARI)
     if args.vis_all_embeds:
         # we want to encode it first
-        visualize_all_embeds(ann_data, latent_ode_model, metric_only=args.metric_only)
+        visualize_all_embeds(
+            ann_data, latent_ode_model, metric_only=args.metric_only, args=args
+        )
