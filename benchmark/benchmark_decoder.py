@@ -12,7 +12,10 @@ import torch
 
 from benchmark.BenchmarkUtils import Dataset, SplitType, loadSCData, tunedOurPars
 from optim.running import constructscNODEModel, get_checkpoint_train_path
-from plotting.PlottingUtils import umapWithPCA
+from plotting.PlottingUtils import umapWithPCA, umapWithoutPCA
+import scanpy as sc
+from sklearn.metrics import adjusted_rand_score
+import pprint
 
 
 def load_model(n_genes, split_type, args):
@@ -61,7 +64,6 @@ def prep_traj_data(ann_data):
     # so we need to create the update train tps and updated test tps by taking the union
     # between train tps and cell tps
     all_tps = list(range(len(times_sorted)))
-    print(f"Cell time points: {cell_tps}, times sorted: {times_sorted}")
 
     data = ann_data.X
     # Convert to torch project
@@ -82,7 +84,14 @@ def predict_latent_embeds(latent_ode_model, first_tp, tps, n_sim_cells):
 
 
 def visualize_cluster_embeds(
-    ann_data, data_name, split_type, t, title=None, fig_name=None
+    true_data,
+    true_cell_clusters,
+    data_name,
+    split_type,
+    t,
+    is_pred,
+    is_embedding=False,
+    title=None,
 ):
     """
     Visualize UMAP embeddings colored by cell major clusters.
@@ -96,34 +105,49 @@ def visualize_cluster_embeds(
     fig_name : str, optional
         If provided, saves figure to figs/{fig_name}. Otherwise, shows the plot.
     """
-    # --- Extract data ---
-    true_data = ann_data.X.toarray()
-    true_cell_clusters = ann_data.obs["major_clust"].to_numpy()
-    print(
-        f"True data shape: {true_data.shape}, true cell cluster shape: {true_cell_clusters.shape}"
-    )
+    fig_dir = f"figs/embedding/{data_name}/{split_type}/{'pred' if is_pred else ('embed' if is_embedding else 'true')}"
+    os.makedirs(fig_dir, exist_ok=True)
+    fig_path = f"{fig_dir}/t_{f'{t:.3f}' if not isinstance(t, str) else t}.png"
 
-    save_dir = f"./checkpoints/vis_embeds/{data_name}/{split_type}/timepoints/t_{t}"
+    # --- Extract data ---
+    save_dir = f"./checkpoints/vis_embeds/{data_name}/{split_type}/timepoints/{'pred' if is_pred else ('embed' if is_embedding else 'true')}/t_{t}"
     save_path = os.path.join(save_dir, "vis_embed.pkl")
 
     if os.path.exists(save_path):
         # load the umap model and pca model
         with open(save_path, "rb") as umap_file:
             models = pickle.load(umap_file)
-        pca_model = models["pca"]
-        umap_model = models["umap"]
-        true_umap_traj = umap_model.transform(pca_model.transform(true_data))
+        if not is_pred and not is_embedding:
+            pca_model = models["pca"]
+            umap_model = models["umap"]
+            true_umap_traj = umap_model.transform(pca_model.transform(true_data))
+        else:
+            umap_model = models["umap"]
+            true_umap_traj = umap_model.transform(true_data)
         print(f"Successfully loaded embeddings from {save_path}")
     else:
         # --- Run PCA + UMAP ---
-        true_umap_traj, umap_model, pca_model = umapWithPCA(
-            true_data, n_neighbors=50, min_dist=0.1, pca_pcs=50
-        )
+        print(f"Running umap with pca...")
+        if not is_pred and not is_embedding:
+            true_umap_traj, umap_model, pca_model = umapWithPCA(
+                true_data,
+                n_neighbors=10 if true_data.shape[0] > 100_000 else 50,
+                min_dist=0.5,
+                pca_pcs=50,
+            )
+            save_dict = {"pca": pca_model, "umap": umap_model}
+        else:
+            true_umap_traj, umap_model = umapWithoutPCA(
+                true_data,
+                n_neighbors=10 if true_data.shape[0] > 100_000 else 50,
+                min_dist=0.5,
+            )
+            save_dict = {"umap": umap_model}
 
         os.makedirs(save_dir, exist_ok=True)
 
         with open(save_path, "wb") as umap_file:
-            pickle.dump({"pca": pca_model, "umap": umap_model}, umap_file)
+            pickle.dump(save_dict, umap_file)
         print(f"Successfully saved visualization embeddings to {save_path}")
 
     # --- Prepare colors for clusters ---
@@ -144,43 +168,197 @@ def visualize_cluster_embeds(
             true_umap_traj[cluster_idx, 1],
             label=str(clust),
             color=color_list[i],
-            s=20,
-            alpha=0.9,
+            s=0.05 if true_data.shape[0] > 100_000 else 10,
+            alpha=0.7,
         )
 
     ax.legend(
         loc="center left",
         bbox_to_anchor=(1.1, 0.5),
+        markerscale=50 if true_data.shape[0] > 100_000 else 1,
         ncol=num_cols,
         title="Major Cluster",
     )
 
     if title is not None:
         plt.suptitle(title)
-    if fig_name is not None:
-        plt.savefig(f"{fig_name}", bbox_inches="tight")
+    if fig_path is not None:
+        plt.savefig(fig_path, bbox_inches="tight")
     else:
         plt.show()
-
-    return true_umap_traj, umap_model, pca_model
 
 
 def visualize_timepoint_embeds(ann_data, times_sorted, data_name, split_type):
     # first thing to do is to loop over all the tps
-    for t in times_sorted:
+    for t in [*times_sorted]:
         timepoint_data = ann_data[ann_data.obs["numerical_age"] == t].copy()
-        fig_dir = f"figs/embedding/{data_name}/{split_type}"
-        fig_path = f"{fig_dir}/t_{t:.3f}.png"
-        os.makedirs(fig_dir, exist_ok=True)
+        true_data = timepoint_data.X.toarray()
+        true_cell_clusters = timepoint_data.obs["major_clust"].to_numpy()
+        print(
+            f"True data shape: {true_data.shape}, true cell cluster shape: {true_cell_clusters.shape}"
+        )
+
         visualize_cluster_embeds(
-            timepoint_data,
+            true_data,
+            true_cell_clusters,
             data_name,
             split_type,
             t,
-            title=f"True cell type embeddings for timepoint {t}",
-            fig_name=fig_path,
+            is_pred=False,
+            title=(f"True cell type embeddings for timepoint {t:.3g}"),
         )
         print(f"Finish visualization for time point {t}")
+
+    # visualize all of them together
+    true_data = ann_data.X.toarray()
+    true_cell_clusters = ann_data.obs["major_clust"].to_numpy()
+    visualize_cluster_embeds(
+        true_data,
+        true_cell_clusters,
+        data_name,
+        split_type,
+        "all",
+        is_pred=False,
+        title=(f"True cell type embeddings for all"),
+    )
+    print(f"Finish visualization for all")
+
+
+def evaluate_ari(cell_embed, cell_labels):
+    """
+    This function is used to evaluate ARI using the lower-dimensional embedding
+    cell_embed of the single-cell data, alongside its labels
+    """
+    adata = sc.AnnData(X=cell_embed)
+    adata.obs["cell_type"] = cell_labels
+
+    sc.pp.neighbors(adata, use_rep="X", n_neighbors=30)
+    sc.tl.louvain(adata, resolution=0.15)
+    ari = adjusted_rand_score(adata.obs["cell_type"], adata.obs["louvain"])
+    return ari
+
+
+def visualize_pred_embeds(ann_data, latent_ode_model, tps, metric_only):
+    # Can do this by aggregating together the cell predictions
+    # i.e. I predict per cell type, the trajectory of 200 cells
+    # then I visualize them altogether and see what that looks like
+
+    # need to do the following:
+    # 1. Predict per cell type for all time points
+    # a. predict per cell type (starting with traj data of a cell type)
+    # b. combine all the data together per time point
+    # c. then umap/pca them
+
+    cell_types = ann_data.obs["major_clust"].unique().tolist()
+
+    latent_embeddings = [[] for _ in tps]
+    num_cells = 300
+
+    for cell_type in cell_types:
+        print(f"--- Running for cell type {cell_type} ---")
+        cell_type_data = ann_data[ann_data.obs["major_clust"] == cell_type].copy()
+        cell_traj_data, _, _ = prep_traj_data(cell_type_data)
+
+        cell_type_latent_embeddings = predict_latent_embeds(
+            latent_ode_model, cell_traj_data[0], tps, num_cells
+        )
+        print(f"cell type latent embeddings: {cell_type_latent_embeddings.shape}")
+        # join this together based on time -- range over the time domain
+        for j in range(cell_type_latent_embeddings.shape[1]):
+            latent_embeddings[j].append(cell_type_latent_embeddings[:, j, :])
+
+    # latent_embeddings should be tps x (cell_type, cells, genes)
+    print(
+        f"time points x cell types x (cells, genes): ({len(latent_embeddings)}, {len(latent_embeddings[0])}, {latent_embeddings[0][0].shape})"
+    )
+
+    # so we concatenate it on the 0th axis, so that way it becomes (cells, genes)
+    # however, we also need to create the (cells,) cell_type labels
+    final_labels = []
+    final_embeds = []
+
+    metrics = {}
+    metrics["ari"] = {}
+    metrics["kbet"] = {}
+    for t_idx, tp_embed in enumerate(latent_embeddings):
+        # tp_embed is cell_type x (cells, genes)
+        cell_type_labels = np.concatenate(
+            [
+                np.repeat(cell_types[cell_type_idx], tp_embed[cell_type_idx].shape[0])
+                for cell_type_idx in range(len(tp_embed))
+            ]
+        )
+        tp_embed = np.concatenate(tp_embed, axis=0)
+
+        # for altogether predictions
+        final_labels.append(cell_type_labels)
+        final_embeds.append(tp_embed)
+
+        timepoint = times_sorted[t_idx]
+
+        # now we visualize this:
+        if not metric_only:
+            visualize_cluster_embeds(
+                tp_embed,
+                cell_type_labels,
+                data_name,
+                split_type,
+                timepoint,
+                is_pred=True,
+                title=f"Predicted encoder cell type embeddings for timepoint {timepoint:.3f}",
+            )
+
+        # now we should run the NMI and ARI metrics on this
+        metrics["ari"][timepoint] = evaluate_ari(tp_embed, cell_type_labels)
+        print(
+            f"Successfully visualized the latent embeddings for time point: {times_sorted[t_idx]}"
+        )
+
+    # finally, visualize all the embeddings together:
+    final_labels = np.concatenate(final_labels, axis=0)
+    final_embeds = np.concatenate(final_embeds, axis=0)
+    if not metric_only:
+        visualize_cluster_embeds(
+            final_embeds,
+            final_labels,
+            data_name,
+            split_type,
+            "all",
+            is_pred=True,
+            title=f"Predicted encoder cell type embeddings for all",
+        )
+    metrics["ari"]["all"] = evaluate_ari(final_embeds, final_labels)
+
+    # todo: add in kbet metrics as well
+    with open(f"./logs/pred_embed_metrics.txt", "w") as f:
+        pprint.pprint(metrics, stream=f, sort_dicts=True)
+    print(f"Finished writing ARI metrics for predicted embeddings")
+
+
+def visualize_all_embeds(ann_data, latent_ode_model, metric_only):
+    """
+    Takes the model given, takes its embeddings and calculate
+    its umap visualization, its ARI and its kBET
+    """
+    exit()
+    # TODO: verify the following:
+    data = ann_data.X.toarray()
+    labels = ann_data.obs["major_clust"].toarray()
+    embeddings, _ = latent_ode_model.vaeReconstruct([data])
+
+    # embeddings should be cells (140000) x 50, (cells,)
+    print(embeddings[0].shape, labels.shape)
+    if not metric_only:
+        visualize_cluster_embeds(
+            embeddings,
+            labels,
+            data_name,
+            split_type,
+            "all",
+            is_pred=False,
+            is_embedding=True,
+            title=f"Encoder cell type embeddings for all",
+        )
 
 
 if __name__ == "__main__":
@@ -211,6 +389,10 @@ if __name__ == "__main__":
         help="split type to choose from",
     )
     parser.add_argument("-n", "--normalize", action="store_true")
+    parser.add_argument("--vis_true", action="store_true")
+    parser.add_argument("--vis_pred", action="store_true")
+    parser.add_argument("--vis_all_embeds", action="store_true")
+    parser.add_argument("--metric_only", action="store_true")
 
     # so we add an argument to train a specific cell type, if it doesn't exist
     # then we train all cell types
@@ -222,7 +404,7 @@ if __name__ == "__main__":
     data_name = args.dataset
     split_type = args.split_type.value
 
-    # 27000 cells by 2000 genes (HVGs) if true
+    # 154000 cells by 2000 genes (HVGs) if true
     ann_data, cell_tps, cell_types, n_genes, n_tps = loadSCData(
         data_name,
         split_type,
@@ -232,7 +414,6 @@ if __name__ == "__main__":
     )
 
     traj_data, tps, times_sorted = prep_traj_data(ann_data)
-    print(f"Trajectory data: {traj_data}, tps: {tps}, times_sorted: {times_sorted}")
 
     # simple: take the latent model
     # run prediction on it
@@ -244,59 +425,16 @@ if __name__ == "__main__":
     # and evaluate it
     # umap_embeds = timesteps x (umap_embed, pca_embed)
     # returns a umap embedding and a pca embedding per time point
-    visualize_timepoint_embeds(ann_data, times_sorted, data_name, split_type)
+    if args.vis_true:
+        visualize_timepoint_embeds(ann_data, times_sorted, data_name, split_type)
 
-    # 1) todo: visualize the umap embeddings at a time point, and then colour per cell type
-    # in progress
-    # 2) todo: visualize the umap embeddings of the learned embeddings at a time point, colour per cell type
-    # ! Can do this by aggregating together the cell predictions
-    # ! i.e. I predict per cell type, the trajectory of 200 cells
-    # ! then I visualize them altogether and see what that looks like
-
-    # then we predict the embeddings per time point
-    # need to do the following:
-    # predict per cell type (starting with traj data of a cell type)
-    # combine all the data together per time point
-    # then umap/pca them
-
-    print(f"Cell types: {cell_types}")
-
-    """
-    latent_embeddings = [[] for _ in tps]
-
-    num_cells = 300
-
-    for i, cell_type in enumerate(cell_types):
-        cell_type_data = ann_data[ann_data.obs['major_clust'] == cell_type].copy()
-        cell_traj_data, _, _ = prep_traj_data(cell_type_data)
-
-        cell_type_latent_embeddings = predict_latent_embeds(
-            latent_ode_model,
-            cell_traj_data[0],
-            tps,
-            num_cells
+    # 2) visualize the umap embeddings of the learned embeddings at a time point, colour per cell type
+    if args.vis_pred:
+        visualize_pred_embeds(
+            ann_data, latent_ode_model, tps, metric_only=args.metric_only
         )
-        print(f'cell type latent embeddings: {cell_type_latent_embeddings.shape}')
-        # join this together based on time -- range over the time domain
-        for i in range(cell_type_latent_embeddings.shape[1]):
-            latent_embeddings[i].append(cell_type_latent_embeddings[:,i,:])
-            if i == 2:
-                break
 
-    # latent_embeddings should be tps x (cell_type, cells, genes)
-    print(f'Shape: ({len(latent_embeddings)}, {len(latent_embeddings[0])})')
-
-    # so we concatenate it on the 0th axis, so that way it becomes (cells, genes)
-    # however, we also need to create the (cells,) cell_type labels
-    for tp_embed in latent_embeddings:
-        np.concatenate([np.repeat(cell_types[cell_type_idx], 300) for cell_type_idx in range(tp_embed.shape[0])])
-        tp_embed = np.concatenate(tp_embed, axis=0)
-        latent_embeddings = np.concatenate(latent_embeddings, axis=0)
-
-    # print(f'Successfully predicted the latent embeddings')
-
-
-
-    # 3) todo: compare the above two by checking cluster distances?
-    # finish the above by tomorrow? hopefully?
-    """
+    # 3) Measure how good the encoder is generally (encode all the ann_data measure its ARI)
+    if args.vis_all_embeds:
+        # we want to encode it first
+        visualize_all_embeds(ann_data, latent_ode_model, metric_only=args.metric_only)
