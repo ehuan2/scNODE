@@ -202,6 +202,7 @@ def model_training(
         use_continuous=True,
         use_normalized=use_normalized,
         cell_type=cell_type,
+        freeze_enc_dec=args.freeze_enc_dec,
     )
 
 

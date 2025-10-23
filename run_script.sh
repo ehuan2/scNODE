@@ -14,21 +14,48 @@
 
 # PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py\
 #  -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.0 --vis_all_embeds --pretrain_only
+# echo "Running train_per_cell_type.py with kl_coeff=0.001 and freezing enc, dec weights"
+# PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py \
+#     -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 --freeze_enc_dec
 
-for KL in 0.01 0.05 0.1
-do
-    echo "Running train_per_cell_type.py with kl_coeff=${KL}"
-    PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py \
-        -d herring --hvgs -s remove_recovery --normalize --kl_coeff ${KL}
 
-    echo "Running benchmark_encoder.py with kl_coeff=${KL}"
-    PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
-        -d herring --hvgs -s remove_recovery --normalize --kl_coeff ${KL} \
-        --vis_all_embeds --pretrain_only
+echo "Running benchmark_encoder.py with kl_coeff=0.001 and freezing enc, dec weights"
+PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
+    -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
+    --vis_pred --freeze_enc_dec
 
-    echo "Finished KL: ${KL}"
-    echo "--------------------------------"
-done
+
+# for KL in 0.001
+# do
+#     echo "Running train_per_cell_type.py with kl_coeff=${KL}"
+#     PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py \
+#         -d herring --hvgs -s remove_recovery --normalize --kl_coeff ${KL}
+
+#     echo "Running benchmark_encoder.py with kl_coeff=${KL}"
+#     PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
+#         -d herring --hvgs -s remove_recovery --normalize --kl_coeff ${KL} \
+#         --vis_all_embeds
+
+#     echo "Finished KL: ${KL}"
+#     echo "--------------------------------"
+# done
+
+
+
+# for KL in 0.001 0.005
+# do
+#     echo "Running train_per_cell_type.py with kl_coeff=${KL}"
+#     PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py \
+#         -d herring --hvgs -s remove_recovery --normalize --kl_coeff ${KL}
+
+#     echo "Running benchmark_encoder.py with kl_coeff=${KL}"
+#     PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
+#         -d herring --hvgs -s remove_recovery --normalize --kl_coeff ${KL} \
+#         --vis_all_embeds --pretrain_only
+
+#     echo "Finished KL: ${KL}"
+#     echo "--------------------------------"
+# done
 
 ############################## Training for a bunch of different cell types #########################
 # Define the two flags

@@ -609,6 +609,7 @@ def create_parser():
         help="split type to choose from",
     )
     parser.add_argument("-n", "--normalize", action="store_true")
+    parser.add_argument("-f", "--freeze_enc_dec", action="store_true")
 
     # so we add an argument to train a specific cell type, if it doesn't exist
     # then we train all cell types

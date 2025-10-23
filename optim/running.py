@@ -95,9 +95,12 @@ def get_checkpoint_train_path(
     split_type,
     kl_coeff,
     pretrain_only,
+    freeze_enc_dec,
 ):
     dir = f'./checkpoints{"/continuous" if use_continuous else ""}{"/normalized" if use_normalized else ""}{f"/cell_type_{cell_type}" if cell_type != "" else ""}'
     dir += f"/kl_coeff_{kl_coeff}" if kl_coeff != 0.0 else ""
+    if not pretrain_only:
+        dir += f"/freeze_enc_dec" if freeze_enc_dec else ""
     return dir, (
         f"{dir}/{data_name}_{'full_train' if not pretrain_only else 'pretrain'}_split_type_{split_type}_use_hvgs_{use_hvgs}.pth"
     )
@@ -124,6 +127,7 @@ def scNODETrainWithPreTrain(
     use_continuous=False,
     use_normalized=False,
     cell_type="",
+    freeze_enc_dec=False,
 ):
     """
     Train scNODE model.
@@ -163,6 +167,7 @@ def scNODETrainWithPreTrain(
         split_type=split_type,
         kl_coeff=kl_coeff,
         pretrain_only=False,
+        freeze_enc_dec=freeze_enc_dec,
     )
     os.makedirs(dir, exist_ok=True)
 
@@ -198,6 +203,7 @@ def scNODETrainWithPreTrain(
         split_type=split_type,
         kl_coeff=kl_coeff,
         pretrain_only=True,
+        freeze_enc_dec=freeze_enc_dec,
     )
 
     if os.path.exists(checkpoint_pretrain_path):
@@ -251,7 +257,6 @@ def scNODETrainWithPreTrain(
         torch.save(latent_ode_model.state_dict(), checkpoint_pretrain_path)
 
     print(f"Latent ODE model is ready for visualization...")
-    exit()
 
     #####################################
     # VAE reconstruction visualization -- if they match it's a good reconstruction! Else, it's pretty shit
@@ -287,8 +292,12 @@ def scNODETrainWithPreTrain(
     blur = 0.05
     scaling = 0.5
     loss_list = []
+
+    neural_ode_params = latent_ode_model.diffeq_decoder.parameters()
     optimizer = torch.optim.Adam(
-        params=latent_ode_model.parameters(), lr=lr, betas=(0.95, 0.99)
+        params=neural_ode_params if freeze_enc_dec else latent_ode_model.parameters(),
+        lr=lr,
+        betas=(0.95, 0.99),
     )
     latent_ode_model.train()
 

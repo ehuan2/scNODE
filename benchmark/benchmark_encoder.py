@@ -51,6 +51,7 @@ def load_model(n_genes, split_type, args):
         split_type=args.split_type.value,
         kl_coeff=args.kl_coeff,
         pretrain_only=args.pretrain_only,
+        freeze_enc_dec=args.freeze_enc_dec,
     )
 
     if not os.path.exists(checkpoint_path):
@@ -111,16 +112,17 @@ def visualize_cluster_embeds(
     fig_name : str, optional
         If provided, saves figure to figs/{fig_name}. Otherwise, shows the plot.
     """
-    fig_dir = f"figs/embedding/{data_name}/{split_type}/{'pred' if is_pred else ('embed' if is_embedding else 'true')}"
-    fig_dir += f"/kl_coeff_{args.kl_coeff}" if args.kl_coeff != 0.0 else ""
-    fig_dir += f"_pretrain_only" if args.pretrain_only else ""
+    shared_path = f"{data_name}/{split_type}/{'pred' if is_pred else ('embed' if is_embedding else 'true')}"
+    shared_path += f"/kl_coeff_{args.kl_coeff}" if args.kl_coeff != 0.0 else ""
+    shared_path += f"_pretrain_only" if args.pretrain_only else ""
+    shared_path += f"_freeze_enc_dec" if args.freeze_enc_dec else ""
+
+    fig_dir = f"figs/embedding/" + shared_path
     os.makedirs(fig_dir, exist_ok=True)
     fig_path = f"{fig_dir}/t_{f'{t:.3f}' if not isinstance(t, str) else t}.png"
 
     # --- Extract data ---
-    save_dir = f"./checkpoints/vis_embeds/{data_name}/{split_type}/timepoints/{'pred' if is_pred else ('embed' if is_embedding else 'true')}/t_{t}"
-    save_dir += f"/kl_coeff_{args.kl_coeff}" if args.kl_coeff != 0.0 else ""
-    save_dir += f"_pretrain_only" if args.pretrain_only else ""
+    save_dir = f"./checkpoints/vis_embeds/" + shared_path
     save_path = os.path.join(save_dir, "vis_embed.pkl")
 
     if os.path.exists(save_path):
@@ -344,7 +346,7 @@ def visualize_pred_embeds(ann_data, latent_ode_model, tps, metric_only, args):
 
     with open(f"./logs/pred_embed_metrics.txt", "a") as f:
         f.write(
-            f"Running for KL coefficient: {args.kl_coeff} Pretrain only: {args.pretrain_only}\n"
+            f"Running for KL coefficient: {args.kl_coeff} Pretrain only: {args.pretrain_only} Frozen Enc. Dec. Weights: {args.freeze_enc_dec}\n"
         )
         pprint.pprint(metrics, stream=f, sort_dicts=True)
     print(f"Finished writing ARI metrics for predicted embeddings")
@@ -381,7 +383,7 @@ def visualize_all_embeds(ann_data, latent_ode_model, metric_only, args):
     metrics["ari"]["all"] = evaluate_ari(embeddings, labels)
     with open(f"./logs/embed_metrics.txt", "a") as f:
         f.write(
-            f"Running for KL coefficient: {args.kl_coeff}, Pretrain Only: {args.pretrain_only}\n"
+            f"Running for KL coefficient: {args.kl_coeff}, Pretrain Only: {args.pretrain_only} Frozen Enc. Dec. Weights: {args.freeze_enc_dec}\n"
         )
         pprint.pprint(metrics, stream=f, sort_dicts=True)
 
