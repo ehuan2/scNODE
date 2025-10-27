@@ -19,10 +19,15 @@
 #     -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 --freeze_enc_dec
 
 
-# echo "Running benchmark_encoder.py with kl_coeff=0.001 and freezing enc, dec weights"
-# PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
+# echo "Running train_per_cell.py with kl_coeff=0.001 and freezing enc, dec weights, beta=10"
+# PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py \
 #     -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
-#     --vis_pred --freeze_enc_dec
+#     --freeze_enc_dec --beta 10
+
+echo "Running benchmark_encoder.py with kl_coeff=0.001 and freezing enc, dec weights, beta=10"
+PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
+    -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
+    --vis_pred --freeze_enc_dec --beta 10 --metric_only
 
 # for KL in 0.00001
 # do
@@ -37,26 +42,26 @@
 # done
 
 
-for lr in 1e-3
-do
-    for ftlr in 5e-4
-    do
-        echo "Running train_per_cell_type.py with frozen enc/dec, kl_coeff=0.001, lr=${lr}, finetune_lr=${ftlr}"
-        PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py \
-            -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
-            --lr ${lr} --finetune_lr ${ftlr}
+# for lr in 1e-3
+# do
+#     for ftlr in 1e-4
+#     do
+#         echo "Running train_per_cell_type.py with frozen enc/dec, kl_coeff=0.001, lr=${lr}, finetune_lr=${ftlr}"
+#         PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py \
+#             -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
+#             --lr ${lr} --finetune_lr ${ftlr} --beta 10
 
-        echo "Running benchmark_encoder.py (vis_all_embeds) with kl_coeff=0.001, lr=${lr}, finetune_lr=${ftlr}"
-        PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
-            -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
-            --lr ${lr} --finetune_lr ${ftlr} --vis_all_embeds
+#         echo "Running benchmark_encoder.py (vis_all_embeds) with kl_coeff=0.001, lr=${lr}, finetune_lr=${ftlr}"
+#         PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
+#             -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
+#             --lr ${lr} --finetune_lr ${ftlr} --vis_all_embeds --beta 10
 
-        echo "Running benchmark_encoder.py (vis_pred) with kl_coeff=0.001, lr=${lr}, finetune_lr=${ftlr}"
-        PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
-            -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
-            --lr ${lr} --finetune_lr ${ftlr} --vis_pred
-    done
-done
+#         echo "Running benchmark_encoder.py (vis_pred) with kl_coeff=0.001, lr=${lr}, finetune_lr=${ftlr}"
+#         PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
+#             -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
+#             --lr ${lr} --finetune_lr ${ftlr} --vis_pred --beta 10
+#     done
+# done
 
 
 # for KL in 0.001
