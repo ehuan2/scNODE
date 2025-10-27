@@ -92,6 +92,8 @@ def add_to_dir(args, pretrain_only):
         if args.adjusted_full_train:
             dir += f"/adjusted_full_train"
             dir += f"/full_train_kl_coeff_{args.full_train_kl_coeff}"
+        if args.finetune_lr != 1e-3 or args.lr != 1e-3:
+            dir += f"/finetune_lr_{args.finetune_lr}_lr_{args.lr}"
         dir += f"/beta_{args.beta}" if args.beta != 1.0 else ""
     return dir
 
@@ -308,11 +310,30 @@ def scNODETrainWithPreTrain(
     loss_list = []
 
     neural_ode_params = latent_ode_model.diffeq_decoder.parameters()
-    optimizer = torch.optim.Adam(
-        params=neural_ode_params if freeze_enc_dec else latent_ode_model.parameters(),
-        lr=lr,
-        betas=(0.95, 0.99),
-    )
+    if freeze_enc_dec:
+        optimizer = torch.optim.Adam(
+            params=neural_ode_params,
+            lr=lr,
+            betas=(0.95, 0.99),
+        )
+    else:
+        dim_reduction_params = itertools.chain(
+            *[latent_encoder.parameters(), obs_decoder.parameters()]
+        )
+        optimizer = torch.optim.Adam(
+            [
+                {
+                    "params": neural_ode_params,
+                    "lr": args.lr,
+                },
+                {
+                    "params": dim_reduction_params,
+                    "lr": args.finetune_lr,
+                },
+            ],
+            betas=(0.95, 0.99),
+        )
+
     latent_ode_model.train()
 
     for e in range(epochs):

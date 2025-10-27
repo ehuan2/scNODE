@@ -157,7 +157,7 @@ def model_training(
     epochs = 10
     iters = 100
     batch_size = 32
-    lr = 1e-3
+    lr = args.lr
     act_name = "relu"
 
     latent_dim, drift_latent_size, enc_latent_list, dec_latent_list = tunedOurPars(

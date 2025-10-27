@@ -606,6 +606,12 @@ def create_parser():
     parser.add_argument(
         "--beta", type=float, default=1.0, help="Weight of OT regularization"
     )
+    parser.add_argument(
+        "--lr", type=float, default=1e-3, help="Weight of OT regularization"
+    )
+    parser.add_argument(
+        "--finetune_lr", type=float, default=1e-3, help="Weight of OT regularization"
+    )
 
     split_type_sel = [split_type.value for split_type in list(SplitType)]
     parser.add_argument(
