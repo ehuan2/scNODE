@@ -597,6 +597,15 @@ def create_parser():
     parser.add_argument(
         "--kl_coeff", type=float, default=0, help="Weight of KL divergence"
     )
+    parser.add_argument(
+        "--full_train_kl_coeff",
+        type=float,
+        default=0,
+        help="Weight of Full train KL divergence",
+    )
+    parser.add_argument(
+        "--beta", type=float, default=1.0, help="Weight of OT regularization"
+    )
 
     split_type_sel = [split_type.value for split_type in list(SplitType)]
     parser.add_argument(
@@ -609,7 +618,10 @@ def create_parser():
         help="split type to choose from",
     )
     parser.add_argument("-n", "--normalize", action="store_true")
+
+    # note: the following two should be mutually exclusive, i.e. only one of them
     parser.add_argument("-f", "--freeze_enc_dec", action="store_true")
+    parser.add_argument("--adjusted_full_train", action="store_true")
 
     # so we add an argument to train a specific cell type, if it doesn't exist
     # then we train all cell types

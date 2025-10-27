@@ -19,11 +19,39 @@
 #     -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 --freeze_enc_dec
 
 
-echo "Running benchmark_encoder.py with kl_coeff=0.001 and freezing enc, dec weights"
-PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
-    -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
-    --vis_pred --freeze_enc_dec
+# echo "Running benchmark_encoder.py with kl_coeff=0.001 and freezing enc, dec weights"
+# PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
+#     -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
+#     --vis_pred --freeze_enc_dec
 
+# for KL in 0.00001
+# do
+#     echo "Running train_per_cell_type.py with kl_coeff=0.001, full_train_kl_coeff=${KL}"
+#     PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py \
+#         -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
+#         --full_train_kl_coeff ${KL} --adjusted_full_train
+#     echo "Running benchmark_encoder.py with kl_coeff=0.001, full_train_kl_coeff=${KL}"
+#     PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
+#         -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
+#         --vis_all_embeds --full_train_kl_coeff ${KL} --adjusted_full_train
+# done
+
+
+for beta in 0.01 0.001
+do
+    echo "Running train_per_cell_type.py with frozen enc/dec, kl_coeff=0.001, beta=${beta}"
+    PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py \
+        -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
+        --freeze_enc_dec --beta ${beta}
+    echo "Running benchmark_encoder.py, all embeds, with frozen enc/dec, kl_coeff=0.001, beta=${beta}"
+    PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
+        -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
+        --freeze_enc_dec --beta ${beta} --vis_all_embeds
+    echo "Running benchmark_encoder.py, pred, with frozen enc/dec, kl_coeff=0.001, beta=${beta}"
+    PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
+        -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
+        --freeze_enc_dec --beta ${beta} --vis_pred
+done
 
 # for KL in 0.001
 # do

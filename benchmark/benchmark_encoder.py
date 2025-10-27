@@ -52,6 +52,7 @@ def load_model(n_genes, split_type, args):
         kl_coeff=args.kl_coeff,
         pretrain_only=args.pretrain_only,
         freeze_enc_dec=args.freeze_enc_dec,
+        args=args,
     )
 
     if not os.path.exists(checkpoint_path):
@@ -114,6 +115,13 @@ def visualize_cluster_embeds(
     """
     shared_path = f"{data_name}/{split_type}/{'pred' if is_pred else ('embed' if is_embedding else 'true')}"
     shared_path += f"/kl_coeff_{args.kl_coeff}" if args.kl_coeff != 0.0 else ""
+    shared_path += f"/adjusted_full_train" if args.adjusted_full_train else ""
+    shared_path += (
+        f"/full_train_kl_coeff_{args.full_train_kl_coeff}"
+        if args.full_train_kl_coeff != 0.0
+        else ""
+    )
+    shared_path += f"/beta_{args.beta}" if args.beta != 1.0 else ""
     shared_path += f"_pretrain_only" if args.pretrain_only else ""
     shared_path += f"_freeze_enc_dec" if args.freeze_enc_dec else ""
 
@@ -346,7 +354,7 @@ def visualize_pred_embeds(ann_data, latent_ode_model, tps, metric_only, args):
 
     with open(f"./logs/pred_embed_metrics.txt", "a") as f:
         f.write(
-            f"Running for KL coefficient: {args.kl_coeff} Pretrain only: {args.pretrain_only} Frozen Enc. Dec. Weights: {args.freeze_enc_dec}\n"
+            f"Running for KL coefficient: {args.kl_coeff} Pretrain only: {args.pretrain_only} Frozen Enc. Dec. Weights: {args.freeze_enc_dec} Full train KL coeff: {args.full_train_kl_coeff} Beta: {args.beta}\n"
         )
         pprint.pprint(metrics, stream=f, sort_dicts=True)
     print(f"Finished writing ARI metrics for predicted embeddings")
@@ -383,7 +391,7 @@ def visualize_all_embeds(ann_data, latent_ode_model, metric_only, args):
     metrics["ari"]["all"] = evaluate_ari(embeddings, labels)
     with open(f"./logs/embed_metrics.txt", "a") as f:
         f.write(
-            f"Running for KL coefficient: {args.kl_coeff}, Pretrain Only: {args.pretrain_only} Frozen Enc. Dec. Weights: {args.freeze_enc_dec}\n"
+            f"Running for KL coefficient: {args.kl_coeff}, Pretrain Only: {args.pretrain_only} Frozen Enc. Dec. Weights: {args.freeze_enc_dec} Full train KL coeff: {args.full_train_kl_coeff} Beta: {args.beta}\n"
         )
         pprint.pprint(metrics, stream=f, sort_dicts=True)
 

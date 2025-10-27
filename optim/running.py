@@ -13,6 +13,7 @@ from datetime import datetime
 import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
+import torch.distributions as dist
 from tqdm import tqdm
 
 from benchmark.BenchmarkUtils import sampleGaussian
@@ -84,6 +85,15 @@ def constructscNODEModel(
 
 
 # =============================================
+def add_to_dir(args, pretrain_only):
+    dir = ""
+    if not pretrain_only:
+        dir += f"/freeze_enc_dec" if args.freeze_enc_dec else ""
+        if args.adjusted_full_train:
+            dir += f"/adjusted_full_train"
+            dir += f"/full_train_kl_coeff_{args.full_train_kl_coeff}"
+        dir += f"/beta_{args.beta}" if args.beta != 1.0 else ""
+    return dir
 
 
 def get_checkpoint_train_path(
@@ -96,11 +106,11 @@ def get_checkpoint_train_path(
     kl_coeff,
     pretrain_only,
     freeze_enc_dec,
+    args=None,
 ):
     dir = f'./checkpoints{"/continuous" if use_continuous else ""}{"/normalized" if use_normalized else ""}{f"/cell_type_{cell_type}" if cell_type != "" else ""}'
     dir += f"/kl_coeff_{kl_coeff}" if kl_coeff != 0.0 else ""
-    if not pretrain_only:
-        dir += f"/freeze_enc_dec" if freeze_enc_dec else ""
+    dir += add_to_dir(args, pretrain_only)
     return dir, (
         f"{dir}/{data_name}_{'full_train' if not pretrain_only else 'pretrain'}_split_type_{split_type}_use_hvgs_{use_hvgs}.pth"
     )
@@ -128,6 +138,7 @@ def scNODETrainWithPreTrain(
     use_normalized=False,
     cell_type="",
     freeze_enc_dec=False,
+    args=None,
 ):
     """
     Train scNODE model.
@@ -168,6 +179,7 @@ def scNODETrainWithPreTrain(
         kl_coeff=kl_coeff,
         pretrain_only=False,
         freeze_enc_dec=freeze_enc_dec,
+        args=args,
     )
     os.makedirs(dir, exist_ok=True)
 
@@ -185,6 +197,7 @@ def scNODETrainWithPreTrain(
     run_name = f"run_{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     log_dir = f"./logs/scNODE_runs/{data_name}/continuous_{use_continuous}/normalized_{use_normalized}/split_type_{split_type}"
     log_dir += f"/kl_coeff_{kl_coeff}" if kl_coeff != 0.0 else ""
+    log_dir += add_to_dir(args, False)
     log_dir = os.path.join(
         log_dir,
         run_name,
@@ -204,6 +217,7 @@ def scNODETrainWithPreTrain(
         kl_coeff=kl_coeff,
         pretrain_only=True,
         freeze_enc_dec=freeze_enc_dec,
+        args=args,
     )
 
     if os.path.exists(checkpoint_pretrain_path):
@@ -355,22 +369,47 @@ def scNODETrainWithPreTrain(
 
             loss = ot_loss + latent_coeff * dynamic_reg
 
-            epoch_pbar.set_postfix(
-                {
-                    "Loss": "{:.3f} | OT={:.3f}, Dynamic_Reg={:.3f}".format(
-                        loss, ot_loss, dynamic_reg
-                    )
-                }
-            )
-
-            logging.debug(
-                "Step: {} | Loss: {:.3f} | OT={:.3f}, Dynamic_Reg={:.3f}".format(
-                    e * iters + t, loss, ot_loss, dynamic_reg
+            # add an extra KL loss term
+            if args.adjusted_full_train:
+                normal_dist = dist.Normal(
+                    torch.zeros_like(first_latent_dist.mean),
+                    torch.ones_like(first_latent_dist.stddev),
                 )
-            )
+                kl_loss = dist.kl_divergence(first_latent_dist, normal_dist).sum()
+                loss += args.full_train_kl_coeff * kl_loss
+
+                epoch_pbar.set_postfix(
+                    {
+                        "Loss": "{:.3f} | OT={:.3f}, Dynamic_Reg={:.3f}, KL_Reg={:.3f}".format(
+                            loss, ot_loss, dynamic_reg, kl_loss
+                        )
+                    }
+                )
+
+                logging.debug(
+                    "Step: {} | Loss: {:.3f} | OT={:.3f}, Dynamic_Reg={:.3f}, KL_Reg={:.3f}".format(
+                        e * iters + t, loss, ot_loss, dynamic_reg, kl_loss
+                    )
+                )
+            else:
+                epoch_pbar.set_postfix(
+                    {
+                        "Loss": "{:.3f} | OT={:.3f}, Dynamic_Reg={:.3f}".format(
+                            loss, ot_loss, dynamic_reg
+                        )
+                    }
+                )
+
+                logging.debug(
+                    "Step: {} | Loss: {:.3f} | OT={:.3f}, Dynamic_Reg={:.3f}".format(
+                        e * iters + t, loss, ot_loss, dynamic_reg
+                    )
+                )
 
             writer.add_scalar("Loss/OT", ot_loss.item(), e * iters + t)
             writer.add_scalar("Loss/Dynamic_Reg", dynamic_reg.item(), e * iters + t)
+            if args.adjusted_full_train:
+                writer.add_scalar("Loss/KL_Reg", kl_loss.item(), e * iters + t)
             writer.add_scalar("Loss", loss.item(), e * iters + t)
 
             loss.backward()
