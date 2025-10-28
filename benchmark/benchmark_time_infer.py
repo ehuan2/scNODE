@@ -106,7 +106,6 @@ def prep_traj_data_non_herring(ann_data, n_tps):
 
 
 def evaluate_time_inference(latent_ode_model, traj_data, tps, test_tps, times_sorted=None):
-    # TODO: if herring, make sure train_tps, test_tps are all turned into something else! I think...
     n_sim_cells = 2000
     all_recon_obs = scNODEPredict(latent_ode_model, traj_data[0], tps, n_cells=n_sim_cells)
 
@@ -115,7 +114,11 @@ def evaluate_time_inference(latent_ode_model, traj_data, tps, test_tps, times_so
     test_tps_list = [int(t) for t in test_tps]
     for t in test_tps_list:
         pred_global_metric = globalEvaluation(traj_data[t].detach().numpy(), all_recon_obs[:, t, :])
-        print(f'Metrics for {t}: {pred_global_metric}')
+        print(f'Metrics for {t if times_sorted is None else times_sorted[t]}: {pred_global_metric}')
+
+
+def tps_to_continuous(tps, times_sorted):
+    return torch.FloatTensor([times_sorted[int(tp)] for tp in tps])
 
 
 if __name__ == "__main__":
@@ -136,13 +139,14 @@ if __name__ == "__main__":
         normalize_data=args.normalize,
     )
 
+    times_sorted = None
     if data_name in [Dataset.HERRING, Dataset.HERRING_GABA]:
         traj_data, tps, times_sorted = prep_traj_data(ann_data)
-        # todo: modify tps to be continuous here
+        tps = tps_to_continuous(tps, times_sorted)
     else:
         traj_data, tps = prep_traj_data_non_herring(ann_data, n_tps)
 
-    train_tps, test_tps = tpSplitInd(data_name, split_type)
+    train_tps, test_tps = tpSplitInd(data_name, split_type, n_tps)
 
     # simple: take the latent model
     # take the latent_seq instead of recon_obs
@@ -153,5 +157,6 @@ if __name__ == "__main__":
         latent_ode_model,
         traj_data,
         tps,
-        test_tps
+        test_tps,
+        times_sorted=times_sorted
     )
