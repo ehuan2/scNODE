@@ -1,10 +1,11 @@
-'''
+"""
 Description:
     Utility functions for benchmarking.
 
 Author:
     Jiaqi Zhang <jiaqi_zhang2@brown.edu>
-'''
+"""
+import argparse
 import numpy as np
 import scanpy
 import pandas as pd
@@ -16,32 +17,41 @@ from optim.evaluation import _ot
 # --------------------------------
 # Load scRNA-seq datasets
 
+
 def loadZebrafishData(data_dir, split_type):
-    cnt_data = pd.read_csv("{}/{}-count_data-hvg.csv".format(data_dir, split_type), header=0, index_col=0)
+    cnt_data = pd.read_csv(
+        "{}/{}-count_data-hvg.csv".format(data_dir, split_type), header=0, index_col=0
+    )
     meta_data = pd.read_csv("{}/meta_data.csv".format(data_dir), header=0, index_col=0)
-    meta_data = meta_data.loc[cnt_data.index,:]
+    meta_data = meta_data.loc[cnt_data.index, :]
     cell_stage = meta_data["stage.nice"]
     unique_cell_stages = natsort.natsorted(np.unique(cell_stage))
-    cell_tp = np.zeros((len(cell_stage), ))
+    cell_tp = np.zeros((len(cell_stage),))
     cell_tp[cell_tp == 0] = np.nan
     for idx, s in enumerate(unique_cell_stages):
         cell_tp[np.where(cell_stage == s)[0]] = idx
     cell_tp += 1
     meta_data["tp"] = cell_tp
     # -----
-    cell_set_meta = pd.read_csv("{}/cell_groups_meta.csv".format(data_dir), header=0, index_col=0)
+    cell_set_meta = pd.read_csv(
+        "{}/cell_groups_meta.csv".format(data_dir), header=0, index_col=0
+    )
     meta_data = pd.concat([meta_data, cell_set_meta.loc[meta_data.index, :]], axis=1)
     ann_data = scanpy.AnnData(X=cnt_data, obs=meta_data)
     return ann_data
 
 
 def loadDrosophilaData(data_dir, split_type):
-    cnt_data = pd.read_csv("{}/{}-count_data-hvg.csv".format(data_dir, split_type), header=0, index_col=0)
-    meta_data = pd.read_csv("{}/subsample_meta_data.csv".format(data_dir), header=0, index_col=0)
-    meta_data = meta_data.loc[cnt_data.index,:]
+    cnt_data = pd.read_csv(
+        "{}/{}-count_data-hvg.csv".format(data_dir, split_type), header=0, index_col=0
+    )
+    meta_data = pd.read_csv(
+        "{}/subsample_meta_data.csv".format(data_dir), header=0, index_col=0
+    )
+    meta_data = meta_data.loc[cnt_data.index, :]
     cell_stage = meta_data["time"]
     unique_cell_stages = natsort.natsorted(np.unique(cell_stage))
-    cell_tp = np.zeros((len(cell_stage), ))
+    cell_tp = np.zeros((len(cell_stage),))
     cell_tp[cell_tp == 0] = np.nan
     for idx, s in enumerate(unique_cell_stages):
         cell_tp[np.where(cell_stage == s)[0]] = idx
@@ -52,14 +62,20 @@ def loadDrosophilaData(data_dir, split_type):
 
 
 def loadWOTData(data_dir, split_type):
-    cnt_data = pd.read_csv("{}/{}-norm_data-hvg.csv".format(data_dir, split_type), header=0, index_col=0)
-    meta_data = pd.read_csv("{}/{}-meta_data.csv".format(data_dir, split_type), header=0, index_col=0)
-    cell_idx = np.where(~np.isnan(meta_data["day"].values))[0] # remove cells with nan labels
+    cnt_data = pd.read_csv(
+        "{}/{}-norm_data-hvg.csv".format(data_dir, split_type), header=0, index_col=0
+    )
+    meta_data = pd.read_csv(
+        "{}/{}-meta_data.csv".format(data_dir, split_type), header=0, index_col=0
+    )
+    cell_idx = np.where(~np.isnan(meta_data["day"].values))[
+        0
+    ]  # remove cells with nan labels
     cnt_data = cnt_data.iloc[cell_idx, :]
-    meta_data = meta_data.loc[cnt_data.index,:]
+    meta_data = meta_data.loc[cnt_data.index, :]
     cell_stage = meta_data["day"]
     unique_cell_stages = natsort.natsorted(np.unique(cell_stage))
-    cell_tp = np.zeros((len(cell_stage), ))
+    cell_tp = np.zeros((len(cell_stage),))
     cell_tp[cell_tp == 0] = np.nan
     for idx, s in enumerate(unique_cell_stages):
         cell_tp[np.where(cell_stage == s)[0]] = idx
@@ -68,48 +84,69 @@ def loadWOTData(data_dir, split_type):
     ann_data = scanpy.AnnData(X=cnt_data, obs=meta_data)
     return ann_data
 
+
 def loadHerringData(data_dir, use_hvgs):
     ann_data = scanpy.read_h5ad(data_dir)
     if not use_hvgs:
         return ann_data
-    
+
     # otherwise, let's preprocess this to use the top 2000 highly variable genes
     # ** Note: I thought there were some nans here, but in reality there was an issue with the input data **
     # Only seurat_v3 can have unnormalized gene counts :)
-    scanpy.pp.highly_variable_genes(ann_data, n_top_genes=2000, flavor='seurat_v3')
+    scanpy.pp.highly_variable_genes(ann_data, n_top_genes=2000, flavor="seurat_v3")
 
     # let's return JUST the annotated data that's the top 2000 genes
-    return ann_data[:, ann_data.var['highly_variable']].copy()
+    return ann_data[:, ann_data.var["highly_variable"]].copy()
+
 
 from enum import Enum
+
+
 class Dataset(Enum):
-    DROSOPHILA = 'drosophila'
-    ZEBRAFISH = 'zebrafish'
-    WOT = 'wot'
-    HERRING = 'herring'
-    HERRING_GABA = 'herring_gaba'
+    DROSOPHILA = "drosophila"
+    ZEBRAFISH = "zebrafish"
+    WOT = "wot"
+    HERRING = "herring"
+    HERRING_GABA = "herring_gaba"
+
 
 class SplitType(Enum):
-    THREE_INTERPOLATION = 'three_interpolation'
-    REMOVE_RECOVERY = 'remove_recovery'
+    THREE_INTERPOLATION = "three_interpolation"
+    REMOVE_RECOVERY = "remove_recovery"
 
 
 # --------------------------------
 def gen_data_dirs(path_to_dir):
     from pathlib import Path
+
     # Dataset directories
-    zebrafish_data_dir = "scNODE_data/data/single_cell/experimental/zebrafish_embryonic/new_processed"
-    wot_data_dir = "scNODE_data/data/single_cell/experimental/Schiebinger2019/reduce_processed/"
-    drosophila_data_dir = "scNODE_data/data/single_cell/experimental/drosophila_embryonic/processed/"
-    herring_data_dir = f'herring_data/data/Processed_data_RNA-all_full-counts-and-downsampled-CPM.h5ad'
-    herring_gaba_data_dir = f'herring_data/data/Processed_data_RNA-gaba_full-counts-and-downsampled-CPM.h5ad'
+    zebrafish_data_dir = (
+        "scNODE_data/data/single_cell/experimental/zebrafish_embryonic/new_processed"
+    )
+    wot_data_dir = (
+        "scNODE_data/data/single_cell/experimental/Schiebinger2019/reduce_processed/"
+    )
+    drosophila_data_dir = (
+        "scNODE_data/data/single_cell/experimental/drosophila_embryonic/processed/"
+    )
+    herring_data_dir = (
+        f"herring_data/data/Processed_data_RNA-all_full-counts-and-downsampled-CPM.h5ad"
+    )
+    herring_gaba_data_dir = f"herring_data/data/Processed_data_RNA-gaba_full-counts-and-downsampled-CPM.h5ad"
 
     zebrafish_data_dir = Path(path_to_dir) / zebrafish_data_dir
     wot_data_dir = Path(path_to_dir) / wot_data_dir
     drosophila_data_dir = Path(path_to_dir) / drosophila_data_dir
     herring_data_dir = Path(path_to_dir) / herring_data_dir
     herring_gaba_data_dir = Path(path_to_dir) / herring_gaba_data_dir
-    return zebrafish_data_dir, wot_data_dir, drosophila_data_dir, herring_data_dir, herring_gaba_data_dir
+    return (
+        zebrafish_data_dir,
+        wot_data_dir,
+        drosophila_data_dir,
+        herring_data_dir,
+        herring_gaba_data_dir,
+    )
+
 
 def get_cell_type_name(data_name: Dataset):
     if data_name == Dataset.ZEBRAFISH:
@@ -120,11 +157,25 @@ def get_cell_type_name(data_name: Dataset):
         return "cell_type"
     return None
 
-def loadSCData(data_name, split_type, data_dir=None, path_to_dir='../', use_hvgs=False, normalize_data=False):
-    '''
+
+def loadSCData(
+    data_name,
+    split_type,
+    data_dir=None,
+    path_to_dir="../",
+    use_hvgs=False,
+    normalize_data=False,
+):
+    """
     Main function to load scRNA-seq dataset and pre-process it.
-    '''
-    zebrafish_data_dir, wot_data_dir, drosophila_data_dir, herring_data_dir, herring_gaba_data_dir = gen_data_dirs(path_to_dir)
+    """
+    (
+        zebrafish_data_dir,
+        wot_data_dir,
+        drosophila_data_dir,
+        herring_data_dir,
+        herring_gaba_data_dir,
+    ) = gen_data_dirs(path_to_dir)
 
     print("[ Data={} | Split={} ] Loading data...".format(data_name, split_type))
     if data_name == Dataset.ZEBRAFISH:
@@ -133,7 +184,11 @@ def loadSCData(data_name, split_type, data_dir=None, path_to_dir='../', use_hvgs
         ann_data = loadZebrafishData(data_dir, split_type)
         ann_data.X = ann_data.X.astype(float)
         processed_data = preprocess(ann_data.copy())
-        cell_types =  processed_data.obs["ZF6S-Cluster"].apply(lambda x: "NAN" if pd.isna(x) else x).values
+        cell_types = (
+            processed_data.obs["ZF6S-Cluster"]
+            .apply(lambda x: "NAN" if pd.isna(x) else x)
+            .values
+        )
     elif data_name == Dataset.DROSOPHILA:
         if data_dir is None:
             data_dir = drosophila_data_dir
@@ -150,7 +205,9 @@ def loadSCData(data_name, split_type, data_dir=None, path_to_dir='../', use_hvgs
         cell_types = None
     elif data_name in [Dataset.HERRING, Dataset.HERRING_GABA]:
         # TODO: examine this section here
-        data_dir = herring_data_dir if data_name == Dataset.HERRING else herring_gaba_data_dir
+        data_dir = (
+            herring_data_dir if data_name == Dataset.HERRING else herring_gaba_data_dir
+        )
         ann_data = loadHerringData(data_dir, use_hvgs=use_hvgs)
         processed_data = ann_data.copy()
 
@@ -162,7 +219,7 @@ def loadSCData(data_name, split_type, data_dir=None, path_to_dir='../', use_hvgs
         cell_types = processed_data.obs.cell_type.values
     else:
         raise ValueError("Unknown data name.")
-    
+
     cell_tps = None
     if data_name not in [Dataset.HERRING, Dataset.HERRING_GABA]:
         cell_tps = ann_data.obs["tp"]
@@ -174,45 +231,45 @@ def loadSCData(data_name, split_type, data_dir=None, path_to_dir='../', use_hvgs
 
 
 def tpSplitInd(data_name, split_type, n_tps=None):
-    '''
+    """
     Get the training/testing timepoint split for each dataset.
-    '''
+    """
     if data_name == Dataset.ZEBRAFISH:
-        if split_type == "two_forecasting": # medium
+        if split_type == "two_forecasting":  # medium
             train_tps = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
             test_tps = [10, 11]
-        elif split_type == "three_interpolation": # easy
+        elif split_type == "three_interpolation":  # easy
             train_tps = [0, 1, 2, 3, 5, 7, 9, 10, 11]
             test_tps = [4, 6, 8]
-        elif split_type == "remove_recovery": # hard
+        elif split_type == "remove_recovery":  # hard
             train_tps = [0, 1, 3, 5, 7, 9]
             test_tps = [2, 4, 6, 8, 10, 11]
         else:
             raise ValueError("Unknown split type {}!".format(split_type))
     elif data_name == Dataset.DROSOPHILA:
-        if split_type == "three_forecasting": # medium
+        if split_type == "three_forecasting":  # medium
             train_tps = [0, 1, 2, 3, 4, 5, 6, 7]
             test_tps = [8, 9, 10]
-        elif split_type == "three_interpolation": # easy
+        elif split_type == "three_interpolation":  # easy
             train_tps = [0, 1, 2, 3, 5, 7, 9, 10]
             test_tps = [4, 6, 8]
-        elif split_type == "remove_recovery": # hard
+        elif split_type == "remove_recovery":  # hard
             train_tps = [0, 1, 3, 5, 7]
             test_tps = [2, 4, 6, 8, 9, 10]
         else:
             raise ValueError("Unknown split type {}!".format(split_type))
     elif data_name == Dataset.WOT:
         unique_days = np.arange(19)
-        if split_type == "three_forecasting": # medium
+        if split_type == "three_forecasting":  # medium
             train_tps = unique_days[:16].tolist()
             test_tps = unique_days[16:].tolist()
-        elif split_type == "three_interpolation": # easy
+        elif split_type == "three_interpolation":  # easy
             train_tps = unique_days.tolist()
             test_tps = [train_tps[5], train_tps[10], train_tps[15]]
             train_tps.remove(unique_days[5])
             train_tps.remove(unique_days[10])
             train_tps.remove(unique_days[15])
-        elif split_type == "remove_recovery": # hard
+        elif split_type == "remove_recovery":  # hard
             train_tps = unique_days.tolist()
             test_idx = [5, 7, 9, 11, 15, 16, 17, 18]
             test_tps = [train_tps[t] for t in test_idx]
@@ -223,7 +280,7 @@ def tpSplitInd(data_name, split_type, n_tps=None):
     elif data_name in [Dataset.HERRING, Dataset.HERRING_GABA]:
         # TODO: examine this section here
         # base it on the three interpolation to start with
-        if split_type == 'three_interpolation':
+        if split_type == "three_interpolation":
             # just remove 3 time points from the middle!
             test_tps = [7, 14, 21]
             train_tps = []
@@ -231,7 +288,7 @@ def tpSplitInd(data_name, split_type, n_tps=None):
             for tp in range(n_tps):
                 if tp not in test_tps:
                     train_tps.append(tp)
-        elif split_type == 'remove_recovery':
+        elif split_type == "remove_recovery":
             # just remove 3 time points from the middle!
             test_tps = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22]
             train_tps = []
@@ -247,64 +304,66 @@ def tpSplitInd(data_name, split_type, n_tps=None):
 
 
 def splitBySpec(traj_data, train_tps, test_tps):
-    '''
+    """
     Split timepoints into training and testing sets.
-    '''
+    """
     train_data = [traj_data[t] for t in train_tps]
     test_data = [traj_data[t] for t in test_tps]
     return train_data, test_data
 
+
 # --------------------------------
+
 
 def tunedOurPars(data_name, split_type):
     latent_dim = 50
     if data_name == Dataset.ZEBRAFISH:
-        if split_type == "three_interpolation": # easy
+        if split_type == "three_interpolation":  # easy
             drift_latent_size = [50, 50]
             enc_latent_list = None
             dec_latent_list = None
-        elif split_type == "two_forecasting": # medium
+        elif split_type == "two_forecasting":  # medium
             drift_latent_size = [50, 50]
             enc_latent_list = None
             dec_latent_list = None
-        elif split_type == "remove_recovery": # hard
+        elif split_type == "remove_recovery":  # hard
             drift_latent_size = [50, 50]
             enc_latent_list = None
             dec_latent_list = None
         else:
             raise ValueError("Unknown task name {}!".format(split_type))
     elif data_name == Dataset.DROSOPHILA:
-        if split_type == "three_interpolation": # easy
+        if split_type == "three_interpolation":  # easy
             drift_latent_size = [50, 50]
             enc_latent_list = [50, 50]
             dec_latent_list = [50, 50]
-        elif split_type == "three_forecasting": # medium
+        elif split_type == "three_forecasting":  # medium
             drift_latent_size = [50, 50]
             enc_latent_list = [50, 50]
             dec_latent_list = [50]
-        elif split_type == "remove_recovery": # hard
+        elif split_type == "remove_recovery":  # hard
             drift_latent_size = [50]
             enc_latent_list = [50, 50]
             dec_latent_list = [50]
         else:
             raise ValueError("Unknown task name {}!".format(split_type))
     elif data_name == Dataset.WOT:
-        if split_type == "three_interpolation": # easy
+        if split_type == "three_interpolation":  # easy
             drift_latent_size = [50, 50]
             enc_latent_list = None
             dec_latent_list = [50, 50]
-        elif split_type == "three_forecasting": # medium
+        elif split_type == "three_forecasting":  # medium
             drift_latent_size = [50, 50]
             enc_latent_list = None
             dec_latent_list = [50]
-        elif split_type == "remove_recovery": # hard
+        elif split_type == "remove_recovery":  # hard
             drift_latent_size = [50, 50]
             enc_latent_list = [50, 50]
             dec_latent_list = None
         else:
             raise ValueError("Unknown task name {}!".format(split_type))
     elif data_name in [Dataset.HERRING, Dataset.HERRING_GABA]:
-        if split_type == "three_interpolation": # easy
+        if split_type == "three_interpolation":  # easy
             # TODO: look into here...
             drift_latent_size = [50, 50]
             enc_latent_list = [50, 50]
@@ -346,7 +405,7 @@ def tunedPRESCIENTPars(data_name, split_type):
             sd = 0.9316792895856639
             tau = 0.0016038637683827054
             clip = 0.7111819465979426
-        elif split_type=="three_forecasting":
+        elif split_type == "three_forecasting":
             layers = 3
             sd = 0.9985129735647569
             tau = 0.0009236067525837804
@@ -441,31 +500,40 @@ def tunedMIOFlowPars(data_name, split_type):
     encoder_layers = encoder_layers + [gae_embedded_dim]
     return gae_embedded_dim, encoder_layers, layers, lambda_density
 
+
 # --------------------------------
+
 
 def traj2Ann(traj_data):
     # traj_data: #trajs, #tps, # features
     traj_data_list = [traj_data[:, t, :] for t in range(traj_data.shape[1])]
-    time_step = np.concatenate([np.repeat(t, traj_data.shape[0]) for t in range(traj_data.shape[1])])
+    time_step = np.concatenate(
+        [np.repeat(t, traj_data.shape[0]) for t in range(traj_data.shape[1])]
+    )
     ann_data = scanpy.AnnData(X=np.concatenate(traj_data_list, axis=0))
     ann_data.obs["time_point"] = time_step
     return ann_data
 
 
 def ann2traj(ann_data):
-    time_idx = [np.where(ann_data.obs.time_point == t)[0] for t in natsort.natsorted(ann_data.obs.time_point.unique())]
+    time_idx = [
+        np.where(ann_data.obs.time_point == t)[0]
+        for t in natsort.natsorted(ann_data.obs.time_point.unique())
+    ]
     traj_data_list = [ann_data.X[idx, :] for idx in time_idx]
     traj_data = np.asarray(traj_data_list)
     traj_data = np.moveaxis(traj_data, [0, 1, 2], [1, 0, 2])
     return traj_data
 
+
 # ---------------------------------
+
 
 def preprocess(ann_data):
     # adopt recipe_zheng17 w/o HVG selection
     # omit scaling part to avoid information leakage
     scanpy.pp.normalize_per_cell(  # normalize with total UMI count per cell
-        ann_data, key_n_counts='n_counts_all', counts_per_cell_after=1e4
+        ann_data, key_n_counts="n_counts_all", counts_per_cell_after=1e4
     )
     scanpy.pp.log1p(ann_data)  # log transform: adata.X = log(adata.X + 1)
     return ann_data
@@ -481,22 +549,90 @@ def postprocess(data):
         log_data = torch.log(norm_data + 1)
     return log_data
 
+
 # ---------------------------------
+
 
 def sampleOT(true_data, pred_data, sample_n, sample_T):
     ot_list = []
     for _ in range(sample_T):
-        true_rand_idx = np.random.choice(np.arange(true_data.shape[0]), sample_n, replace=False)
-        pred_rand_idx = np.random.choice(np.arange(pred_data.shape[0]), sample_n, replace=False)
-        ot_list.append(_ot(true_data[true_rand_idx,:], pred_data[pred_rand_idx,:]))
+        true_rand_idx = np.random.choice(
+            np.arange(true_data.shape[0]), sample_n, replace=False
+        )
+        pred_rand_idx = np.random.choice(
+            np.arange(pred_data.shape[0]), sample_n, replace=False
+        )
+        ot_list.append(_ot(true_data[true_rand_idx, :], pred_data[pred_rand_idx, :]))
     return np.mean(ot_list)
 
 
-def sampleGaussian(mean, std, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
-    '''
+def sampleGaussian(
+    mean, std, device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
+):
+    """
     Sampling with the re-parametric trick.
-    '''
-    d = dist.normal.Normal(torch.Tensor([0.]), torch.Tensor([1.]))
+    """
+    d = dist.normal.Normal(torch.Tensor([0.0]), torch.Tensor([1.0]))
     r = d.sample(mean.size()).squeeze(-1)
     x = r.to(device) * std.float() + mean.float()
     return x
+
+
+def create_parser():
+    parser = argparse.ArgumentParser()
+    dataset_sel = [dataset.value for dataset in list(Dataset)]
+    parser.add_argument(
+        "-d",
+        "--dataset",
+        type=Dataset,
+        choices=list(Dataset),
+        metavar=f"{dataset_sel}",
+        default=Dataset.HERRING_GABA,
+        help="The dataset to evaluate from",
+    )
+    parser.add_argument("-v", action="store_true")
+    parser.add_argument("--traj_view", action="store_true")
+    parser.add_argument("--hvgs", action="store_true")
+    parser.add_argument("--vel_reg", action="store_true")
+
+    parser.add_argument(
+        "--kl_coeff", type=float, default=0, help="Weight of KL divergence"
+    )
+    parser.add_argument(
+        "--full_train_kl_coeff",
+        type=float,
+        default=0,
+        help="Weight of Full train KL divergence",
+    )
+    parser.add_argument(
+        "--beta", type=float, default=1.0, help="Weight of OT regularization"
+    )
+    parser.add_argument(
+        "--lr", type=float, default=1e-3, help="Weight of OT regularization"
+    )
+    parser.add_argument(
+        "--finetune_lr", type=float, default=1e-3, help="Weight of OT regularization"
+    )
+
+    split_type_sel = [split_type.value for split_type in list(SplitType)]
+    parser.add_argument(
+        "-s",
+        "--split_type",
+        type=SplitType,
+        choices=list(SplitType),
+        metavar=f"{split_type_sel}",
+        default=SplitType.THREE_INTERPOLATION,
+        help="split type to choose from",
+    )
+    parser.add_argument("-n", "--normalize", action="store_true")
+
+    # note: the following two should be mutually exclusive, i.e. only one of them
+    parser.add_argument("-f", "--freeze_enc_dec", action="store_true")
+    parser.add_argument("--adjusted_full_train", action="store_true")
+    parser.add_argument("--grad_norm", action="store_true")
+
+    # so we add an argument to train a specific cell type, if it doesn't exist
+    # then we train all cell types
+    parser.add_argument("--cell_type_to_train", type=str, default="")
+    parser.add_argument("--cell_type_to_vis", type=str, default="")
+    return parser
