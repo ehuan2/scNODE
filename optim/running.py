@@ -95,6 +95,8 @@ def add_to_dir(args, pretrain_only):
         if args.finetune_lr != 1e-3 or args.lr != 1e-3:
             dir += f"/finetune_lr_{args.finetune_lr}_lr_{args.lr}"
         dir += f"/beta_{args.beta}" if args.beta != 1.0 else ""
+        if args.vel_reg:
+            dir += "/vel_reg"
     return dir
 
 
@@ -426,6 +428,25 @@ def scNODETrainWithPreTrain(
                         e * iters + t, loss, ot_loss, dynamic_reg
                     )
                 )
+
+            if args.vel_reg:
+                # if we will regularize the neural ODE's velocity:
+                vel_reg_loss = latent_ode_model.diffeq_decoder.net.regularization_loss
+                loss += vel_reg_loss
+                epoch_pbar.set_postfix(
+                    {
+                        "Loss": "{:.3f} | OT={:.3f}, Dynamic_Reg={:.3f}, Vel_Reg={:.3f}".format(
+                            loss, ot_loss, dynamic_reg, vel_reg_loss
+                        )
+                    }
+                )
+
+                logging.debug(
+                    "Step: {} | Loss: {:.3f} | OT={:.3f}, Dynamic_Reg={:.3f}, Vel_Reg={:.3f}".format(
+                        e * iters + t, loss, ot_loss, dynamic_reg, vel_reg_loss
+                    )
+                )
+                writer.add_scalar("Loss/Vel_Reg", vel_reg_loss.item(), e * iters + t)
 
             writer.add_scalar("Loss/OT", ot_loss.item(), e * iters + t)
             writer.add_scalar("Loss/Dynamic_Reg", dynamic_reg.item(), e * iters + t)

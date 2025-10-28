@@ -116,6 +116,7 @@ def visualize_cluster_embeds(
     shared_path = f"{data_name}/{split_type}/{'pred' if is_pred else ('embed' if is_embedding else 'true')}"
     shared_path += f"/kl_coeff_{args.kl_coeff}" if args.kl_coeff != 0.0 else ""
     shared_path += f"/adjusted_full_train" if args.adjusted_full_train else ""
+    shared_path += f"/vel_reg" if args.vel_reg else ""
     shared_path += (
         f"/full_train_kl_coeff_{args.full_train_kl_coeff}"
         if args.full_train_kl_coeff != 0.0
@@ -362,7 +363,7 @@ def visualize_pred_embeds(ann_data, latent_ode_model, tps, metric_only, args):
             f"""
 Running for KL coefficient: {args.kl_coeff}, Pretrain Only: {args.pretrain_only}
 Frozen Enc. Dec. Weights: {args.freeze_enc_dec} Full train KL coeff: {args.full_train_kl_coeff}
-Beta: {args.beta}, LR: {args.lr}, Finetuning LR: {args.finetune_lr}
+Beta: {args.beta}, LR: {args.lr}, Finetuning LR: {args.finetune_lr}, Vel Reg: {args.vel_reg}
 """
         )
         pprint.pprint(metrics, stream=f, sort_dicts=True)
@@ -403,7 +404,7 @@ def visualize_all_embeds(ann_data, latent_ode_model, metric_only, args):
             f"""
 Running for KL coefficient: {args.kl_coeff}, Pretrain Only: {args.pretrain_only}
 Frozen Enc. Dec. Weights: {args.freeze_enc_dec} Full train KL coeff: {args.full_train_kl_coeff}
-Beta: {args.beta}, LR: {args.lr}, Finetuning LR: {args.finetune_lr}
+Beta: {args.beta}, LR: {args.lr}, Finetuning LR: {args.finetune_lr}, Vel Reg: {args.vel_reg}
 """
         )
         pprint.pprint(metrics, stream=f, sort_dicts=True)

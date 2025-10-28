@@ -593,6 +593,7 @@ def create_parser():
     parser.add_argument("-v", action="store_true")
     parser.add_argument("--traj_view", action="store_true")
     parser.add_argument("--hvgs", action="store_true")
+    parser.add_argument("--vel_reg", action="store_true")
 
     parser.add_argument(
         "--kl_coeff", type=float, default=0, help="Weight of KL divergence"

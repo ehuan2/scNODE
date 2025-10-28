@@ -19,15 +19,25 @@
 #     -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 --freeze_enc_dec
 
 
+echo "Running train_per_cell.py with kl_coeff=0.001, vel_reg is True"
+PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py \
+    -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
+    --vel_reg --freeze_enc_dec
+
+echo "Running benchmark/benchmark_encoder.py with kl_coeff=0.001, vel_reg is True"
+PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
+    -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
+    --vel_reg --vis_all_embeds --vis_pred --metric_only --freeze_enc_dec
+
 # echo "Running train_per_cell.py with kl_coeff=0.001 and freezing enc, dec weights, beta=10"
 # PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py \
 #     -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
 #     --freeze_enc_dec --beta 10
 
-echo "Running benchmark_encoder.py with kl_coeff=0.001 and freezing enc, dec weights, beta=10"
-PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
-    -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
-    --vis_pred --freeze_enc_dec --beta 10 --metric_only
+# echo "Running benchmark_encoder.py with kl_coeff=0.001 and freezing enc, dec weights, beta=10"
+# PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
+#     -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
+#     --vis_pred --freeze_enc_dec --beta 10 --metric_only
 
 # for KL in 0.00001
 # do
