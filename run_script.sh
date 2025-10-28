@@ -18,16 +18,22 @@
 # PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py \
 #     -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 --freeze_enc_dec
 
+flags="\
+--freeze_enc_dec \
+--grad_norm \
+--beta 0.01 \
+"
 
-echo "Running train_per_cell.py with kl_coeff=0.001, vel_reg is True"
+echo "Running train_per_cell.py with kl_coeff=0.001, vel_reg is True, Gradnorm is True"
 PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py \
     -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
-    --vel_reg --freeze_enc_dec
+    $flags
 
-echo "Running benchmark/benchmark_encoder.py with kl_coeff=0.001, vel_reg is True"
+echo "Running benchmark/benchmark_encoder.py with kl_coeff=0.001, vel_reg is True, Gradnorm is True"
 PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
     -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
-    --vel_reg --vis_all_embeds --vis_pred --metric_only --freeze_enc_dec
+    $flags \
+    --vis_all_embeds --vis_pred --metric_only
 
 # echo "Running train_per_cell.py with kl_coeff=0.001 and freezing enc, dec weights, beta=10"
 # PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py \

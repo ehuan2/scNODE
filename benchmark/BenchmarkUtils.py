@@ -629,6 +629,7 @@ def create_parser():
     # note: the following two should be mutually exclusive, i.e. only one of them
     parser.add_argument("-f", "--freeze_enc_dec", action="store_true")
     parser.add_argument("--adjusted_full_train", action="store_true")
+    parser.add_argument("--grad_norm", action="store_true")
 
     # so we add an argument to train a specific cell type, if it doesn't exist
     # then we train all cell types

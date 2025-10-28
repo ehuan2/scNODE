@@ -14,7 +14,7 @@ from benchmark.BenchmarkUtils import (
     tunedOurPars,
     create_parser,
 )
-from optim.running import constructscNODEModel, get_checkpoint_train_path
+from optim.running import constructscNODEModel, get_checkpoint_train_path, add_to_dir
 from plotting.PlottingUtils import umapWithPCA, umapWithoutPCA
 import scanpy as sc
 from sklearn.metrics import adjusted_rand_score
@@ -60,6 +60,17 @@ def load_model(n_genes, split_type, args):
 
     latent_ode_model.load_state_dict(torch.load(checkpoint_path))
     return latent_ode_model
+
+
+def get_description(args):
+    """
+    From the current args, get the description to put into logs/pred_embed_metrics
+    """
+    return f"""
+Running for KL coefficient: {args.kl_coeff}, Pretrain Only: {args.pretrain_only}
+Frozen Enc. Dec. Weights: {args.freeze_enc_dec} Full train KL coeff: {args.full_train_kl_coeff}
+Beta: {args.beta}, LR: {args.lr}, Finetuning LR: {args.finetune_lr}, Vel Reg: {args.vel_reg}
+"""
 
 
 def prep_traj_data(ann_data):
@@ -115,21 +126,8 @@ def visualize_cluster_embeds(
     """
     shared_path = f"{data_name}/{split_type}/{'pred' if is_pred else ('embed' if is_embedding else 'true')}"
     shared_path += f"/kl_coeff_{args.kl_coeff}" if args.kl_coeff != 0.0 else ""
-    shared_path += f"/adjusted_full_train" if args.adjusted_full_train else ""
-    shared_path += f"/vel_reg" if args.vel_reg else ""
-    shared_path += (
-        f"/full_train_kl_coeff_{args.full_train_kl_coeff}"
-        if args.full_train_kl_coeff != 0.0
-        else ""
-    )
-    shared_path += f"/beta_{args.beta}" if args.beta != 1.0 else ""
-    shared_path += (
-        f"/lr_{args.lr}_finetune_lr_{args.finetune_lr}"
-        if args.lr != 1e-3 or args.finetune_lr != 1e-3
-        else ""
-    )
+    shared_path += add_to_dir(args, args.pretrain_only)
     shared_path += f"_pretrain_only" if args.pretrain_only else ""
-    shared_path += f"_freeze_enc_dec" if args.freeze_enc_dec else ""
 
     fig_dir = f"figs/embedding/" + shared_path
     os.makedirs(fig_dir, exist_ok=True)
@@ -359,13 +357,7 @@ def visualize_pred_embeds(ann_data, latent_ode_model, tps, metric_only, args):
     metrics["ari"]["all"] = evaluate_ari(final_embeds, final_labels)
 
     with open(f"./logs/pred_embed_metrics.txt", "a") as f:
-        f.write(
-            f"""
-Running for KL coefficient: {args.kl_coeff}, Pretrain Only: {args.pretrain_only}
-Frozen Enc. Dec. Weights: {args.freeze_enc_dec} Full train KL coeff: {args.full_train_kl_coeff}
-Beta: {args.beta}, LR: {args.lr}, Finetuning LR: {args.finetune_lr}, Vel Reg: {args.vel_reg}
-"""
-        )
+        f.write(get_description(args))
         pprint.pprint(metrics, stream=f, sort_dicts=True)
     print(f"Finished writing ARI metrics for predicted embeddings")
 
@@ -400,13 +392,7 @@ def visualize_all_embeds(ann_data, latent_ode_model, metric_only, args):
 
     metrics["ari"]["all"] = evaluate_ari(embeddings, labels)
     with open(f"./logs/embed_metrics.txt", "a") as f:
-        f.write(
-            f"""
-Running for KL coefficient: {args.kl_coeff}, Pretrain Only: {args.pretrain_only}
-Frozen Enc. Dec. Weights: {args.freeze_enc_dec} Full train KL coeff: {args.full_train_kl_coeff}
-Beta: {args.beta}, LR: {args.lr}, Finetuning LR: {args.finetune_lr}, Vel Reg: {args.vel_reg}
-"""
-        )
+        f.write(get_description(args))
         pprint.pprint(metrics, stream=f, sort_dicts=True)
 
     print(f"Finish measuring the encoder on all cells")

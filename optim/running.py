@@ -88,6 +88,8 @@ def constructscNODEModel(
 def add_to_dir(args, pretrain_only):
     dir = ""
     if not pretrain_only:
+        if args.grad_norm:
+            dir += "/grad_norm"
         dir += f"/freeze_enc_dec" if args.freeze_enc_dec else ""
         if args.adjusted_full_train:
             dir += f"/adjusted_full_train"
@@ -338,6 +340,11 @@ def scNODETrainWithPreTrain(
 
     latent_ode_model.train()
 
+    avg_ot_loss = 1.0
+    avg_dynamic_reg = 1.0
+    avg_vel_reg_loss = 1.0
+    alpha = 0.99
+
     for e in range(epochs):
         epoch_pbar = tqdm(range(iters), desc="[ Epoch {} ]".format(e + 1))
         for t in epoch_pbar:
@@ -390,10 +397,24 @@ def scNODETrainWithPreTrain(
                 batch_size=None,
             )
 
+            # if we want to normalize all the gradients into the same scale, let's scale them
+            # down properly
+            if args.grad_norm:
+                avg_ot_loss = alpha * avg_ot_loss + (1.0 - alpha) * ot_loss.item()
+                ot_loss = ot_loss / (avg_ot_loss + 1e-10)
+
+                avg_dynamic_reg = (
+                    alpha * avg_dynamic_reg + (1.0 - alpha) * dynamic_reg.item()
+                )
+                dynamic_reg = dynamic_reg / (avg_dynamic_reg + 1e-10)
+
             loss = ot_loss + latent_coeff * dynamic_reg
 
             # add an extra KL loss term
             if args.adjusted_full_train:
+                if not args.grad_norm:
+                    raise RuntimeError("Not implemented yet for including the KL loss")
+
                 normal_dist = dist.Normal(
                     torch.zeros_like(first_latent_dist.mean),
                     torch.ones_like(first_latent_dist.stddev),
@@ -432,6 +453,12 @@ def scNODETrainWithPreTrain(
             if args.vel_reg:
                 # if we will regularize the neural ODE's velocity:
                 vel_reg_loss = latent_ode_model.diffeq_decoder.net.regularization_loss
+
+                avg_vel_reg_loss = (
+                    alpha * avg_vel_reg_loss + (1.0 - alpha) * vel_reg_loss.item()
+                )
+                vel_reg_loss = vel_reg_loss / (avg_vel_reg_loss + 1e-10)
+
                 loss += vel_reg_loss
                 epoch_pbar.set_postfix(
                     {
