@@ -2,7 +2,6 @@
 # used to test the data and examine the dataset
 import logging
 import pickle
-from datetime import datetime
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -567,17 +566,6 @@ def train_and_visualize(
 
 
 if __name__ == "__main__":
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    log_filename = f"./logs/logging/app_{timestamp}.log"
-
-    # Configure basic logging
-    logging.basicConfig(
-        filename=log_filename,
-        level=logging.INFO,  # Minimum severity to log
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",  # Format
-        datefmt="%Y-%m-%d %H:%M:%S",  # Time format
-    )
-
     parser = create_parser()
     args = parser.parse_args()
 

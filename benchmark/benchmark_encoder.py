@@ -1,7 +1,5 @@
 # benchmark_decoder.py.
 # used to benchmark the decoder and encoder
-# test_dataset.py
-# used to test the data and examine the dataset
 import os
 import pickle
 
@@ -58,6 +56,8 @@ def load_model(n_genes, split_type, args):
     if not os.path.exists(checkpoint_path):
         raise ValueError(f"Checkpoint {checkpoint_path} does not exist")
 
+    print(f"Loaded model from {checkpoint_path}")
+
     latent_ode_model.load_state_dict(torch.load(checkpoint_path))
     return latent_ode_model
 
@@ -70,6 +70,7 @@ def get_description(args):
 Running for KL coefficient: {args.kl_coeff}, Pretrain Only: {args.pretrain_only}
 Frozen Enc. Dec. Weights: {args.freeze_enc_dec} Full train KL coeff: {args.full_train_kl_coeff}
 Beta: {args.beta}, LR: {args.lr}, Finetuning LR: {args.finetune_lr}, Vel Reg: {args.vel_reg}
+Grad Norm: {args.grad_norm}
 """
 
 
@@ -398,6 +399,10 @@ def visualize_all_embeds(ann_data, latent_ode_model, metric_only, args):
     print(f"Finish measuring the encoder on all cells")
 
 
+def tps_to_continuous(tps, times_sorted):
+    return torch.FloatTensor([times_sorted[int(tp)] for tp in tps])
+
+
 if __name__ == "__main__":
     parser = create_parser()
     parser.add_argument("--vis_true", action="store_true")
@@ -421,6 +426,7 @@ if __name__ == "__main__":
     )
 
     traj_data, tps, times_sorted = prep_traj_data(ann_data)
+    tps = tps_to_continuous(tps, times_sorted)
 
     # simple: take the latent model
     # run prediction on it
