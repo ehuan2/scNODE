@@ -70,7 +70,7 @@ def get_description(args):
 Running for KL coefficient: {args.kl_coeff}, Pretrain Only: {args.pretrain_only}
 Frozen Enc. Dec. Weights: {args.freeze_enc_dec} Full train KL coeff: {args.full_train_kl_coeff}
 Beta: {args.beta}, LR: {args.lr}, Finetuning LR: {args.finetune_lr}, Vel Reg: {args.vel_reg}
-Grad Norm: {args.grad_norm}
+Grad Norm: {args.grad_norm} Gamma: {args.gamma}
 """
 
 

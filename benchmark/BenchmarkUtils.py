@@ -608,6 +608,9 @@ def create_parser():
         "--beta", type=float, default=1.0, help="Weight of OT regularization"
     )
     parser.add_argument(
+        "--gamma", type=float, default=1.0, help="Weight of velocity regularization"
+    )
+    parser.add_argument(
         "--lr", type=float, default=1e-3, help="Weight of OT regularization"
     )
     parser.add_argument(

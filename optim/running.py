@@ -99,6 +99,8 @@ def add_to_dir(args, pretrain_only):
         dir += f"/beta_{args.beta}" if args.beta != 1.0 else ""
         if args.vel_reg:
             dir += "/vel_reg"
+        if args.gamma != 1.0:
+            dir += f"/gamma_{args.gamma}"
     return dir
 
 
@@ -459,7 +461,7 @@ def scNODETrainWithPreTrain(
                 )
                 vel_reg_loss = vel_reg_loss / (avg_vel_reg_loss + 1e-10)
 
-                loss += vel_reg_loss
+                loss += args.gamma * vel_reg_loss
                 epoch_pbar.set_postfix(
                     {
                         "Loss": "{:.3f} | OT={:.3f}, Dynamic_Reg={:.3f}, Vel_Reg={:.3f}".format(
