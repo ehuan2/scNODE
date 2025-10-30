@@ -28,24 +28,34 @@
 #     -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
 #     --freeze_enc_dec --vel_reg --vis_all_embed --vis_pred --metric_only
 
-flags="\
---freeze_enc_dec \
---grad_norm \
---gamma 0.01 \
---beta 0.01 \
---vel_reg \
-"
-
-echo "Running benchmark/train_per_cell_type.py with kl_coeff=0.001"
-PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py \
+echo "Running benchmark/benchmark_encoder.py with kl_coeff=0.001"
+PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
     -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
-    $flags
+    --freeze_enc_dec --measure_perfect --use_all_embed_umap
 
 echo "Running benchmark/benchmark_encoder.py with kl_coeff=0.001"
 PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
     -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
-    $flags \
-    --vis_all_embed --vis_pred --metric_only
+    --freeze_enc_dec --measure_perfect
+
+# flags="\
+# --freeze_enc_dec \
+# --grad_norm \
+# --gamma 0.01 \
+# --beta 0.01 \
+# --vel_reg \
+# "
+
+# echo "Running benchmark/train_per_cell_type.py with kl_coeff=0.001"
+# PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py \
+#     -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
+#     $flags
+
+# echo "Running benchmark/benchmark_encoder.py with kl_coeff=0.001"
+# PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
+#     -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
+#     $flags \
+#     --vis_all_embed --vis_pred --metric_only
 
 
 # for beta in 0.001 0.0001

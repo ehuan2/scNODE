@@ -131,11 +131,18 @@ def visualize_cluster_embeds(
     shared_path += f"_pretrain_only" if args.pretrain_only else ""
 
     fig_dir = f"figs/embedding/" + shared_path
+    fig_dir += f"/measure_perfect" if args.measure_perfect else ""
+    if args.use_all_embed_umap:
+        fig_dir += f"/all_embed_umap"
+    else:
+        fig_dir += f"/time_specific_umap"
     os.makedirs(fig_dir, exist_ok=True)
     fig_path = f"{fig_dir}/t_{f'{t:.3f}' if not isinstance(t, str) else t}.png"
 
     # --- Extract data ---
     save_dir = f"./checkpoints/vis_embeds/" + shared_path
+    if not args.use_all_embed_umap and args.measure_perfect:
+        save_dir += f"/measure_perfect/t_{t}"
     save_path = os.path.join(save_dir, "vis_embed.pkl")
 
     if os.path.exists(save_path):
@@ -403,6 +410,47 @@ def tps_to_continuous(tps, times_sorted):
     return torch.FloatTensor([times_sorted[int(tp)] for tp in tps])
 
 
+def measure_perfect(latent_ode_model, ann_data, times_sorted, args):
+    """
+    Given your annotated data, and the timepoints given, calculate the
+    ARI for each time point.
+    """
+    metrics = {}
+
+    for tp in times_sorted:
+        # calculate the annotated data's timepoint
+        # we need to get the labels and the data itself
+        tp_ann_data = ann_data[ann_data.obs["numerical_age"] == tp].copy()
+        data = tp_ann_data.X.toarray()
+        labels = tp_ann_data.obs["major_clust"].to_numpy()
+
+        embeddings, _ = latent_ode_model.vaeReconstruct([data])
+        embeddings = (
+            embeddings[0].detach().numpy()
+        )  # because we're only doing it for one
+
+        if not args.metric_only:
+            # visualize the embeddings now based on each time as well
+            visualize_cluster_embeds(
+                embeddings,
+                labels,
+                data_name,
+                split_type,
+                tp,
+                args=args,
+                is_pred=False,
+                is_embedding=True,
+                title=f"VAE embeddings of timepoint {tp}",
+            )
+            print(f"Finish visualizing for timepoint {tp}")
+
+        metrics[tp] = evaluate_ari(embeddings, labels)
+
+    print(f"Printing the ARI metrics per timepoint")
+    pprint.pprint(metrics)
+    return metrics
+
+
 if __name__ == "__main__":
     parser = create_parser()
     parser.add_argument("--vis_true", action="store_true")
@@ -410,6 +458,8 @@ if __name__ == "__main__":
     parser.add_argument("--vis_all_embeds", action="store_true")
     parser.add_argument("--metric_only", action="store_true")
     parser.add_argument("--pretrain_only", action="store_true")
+    parser.add_argument("--measure_perfect", action="store_true")
+    parser.add_argument("--use_all_embed_umap", action="store_true")
 
     args = parser.parse_args()
 
@@ -455,3 +505,6 @@ if __name__ == "__main__":
         visualize_all_embeds(
             ann_data, latent_ode_model, metric_only=args.metric_only, args=args
         )
+
+    if args.measure_perfect:
+        measure_perfect(latent_ode_model, ann_data, times_sorted, args)
