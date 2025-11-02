@@ -71,6 +71,7 @@ Running for KL coefficient: {args.kl_coeff}, Pretrain Only: {args.pretrain_only}
 Frozen Enc. Dec. Weights: {args.freeze_enc_dec} Full train KL coeff: {args.full_train_kl_coeff}
 Beta: {args.beta}, LR: {args.lr}, Finetuning LR: {args.finetune_lr}, Vel Reg: {args.vel_reg}
 Grad Norm: {args.grad_norm} Gamma: {args.gamma}
+Batch size: {args.batch_size} OT Loss BS: {args.ot_loss_batch_size}
 """
 
 

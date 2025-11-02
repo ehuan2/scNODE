@@ -155,7 +155,7 @@ def model_training(
     latent_coeff = args.beta  # regularization coefficient: beta
     epochs = 10
     iters = 100
-    batch_size = 32
+    batch_size = args.batch_size
     lr = args.lr
     act_name = "relu"
 

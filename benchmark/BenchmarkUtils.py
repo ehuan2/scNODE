@@ -616,6 +616,19 @@ def create_parser():
     parser.add_argument(
         "--finetune_lr", type=float, default=1e-3, help="Weight of OT regularization"
     )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=32,
+        help="Batch size for training (default: 32)",
+    )
+
+    parser.add_argument(
+        "--ot_loss_batch_size",
+        type=int,
+        default=200,
+        help="Batch size for training (default: 32)",
+    )
 
     split_type_sel = [split_type.value for split_type in list(SplitType)]
     parser.add_argument(

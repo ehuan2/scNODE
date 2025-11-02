@@ -101,6 +101,10 @@ def add_to_dir(args, pretrain_only):
             dir += "/vel_reg"
         if args.gamma != 1.0:
             dir += f"/gamma_{args.gamma}"
+        if args.batch_size != 32:
+            dir += f"/bs_{args.batch_size}"
+        if args.ot_loss_batch_size != 200:
+            dir += f"/ot_loss_bs_{args.ot_loss_batch_size}"
     return dir
 
 
@@ -388,7 +392,11 @@ def scNODETrainWithPreTrain(
             # Note: we compare the predicted batch with 200 randomly picked true cells, in order to save computational
             #       time. With sufficient number of training iterations, all true cells can be used.
             ot_loss = SinkhornLoss(
-                train_data, recon_obs, blur=blur, scaling=scaling, batch_size=200
+                train_data,
+                recon_obs,
+                blur=blur,
+                scaling=scaling,
+                batch_size=args.ot_loss_batch_size,
             )
             # Dynamic regularization: Difference between encoder latent and DE latent
             dynamic_reg = SinkhornLoss(

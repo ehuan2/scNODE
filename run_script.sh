@@ -18,25 +18,36 @@
 # PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py \
 #     -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 --freeze_enc_dec
 
-# echo "Running benchmark/train_per_cell_type.py with kl_coeff=0.001"
-# PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py \
+for batch_size in 256 512
+do
+    for ot_loss_batch_size in 512
+    do
+        echo "Running benchmark/train_per_cell_type.py with kl_coeff=0.001 and batch size ${batch_size} and OT Loss BS: ${ot_loss_batch_size}"
+        PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py \
+            -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
+            --freeze_enc_dec --batch_size ${batch_size} --ot_loss_batch_size ${ot_loss_batch_size}
+        echo "Running benchmark/benchmark_encoder.py with kl_coeff=0.001 and batch size ${batch_size}"
+        PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
+            -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
+            --freeze_enc_dec --vis_pred --metric_only --batch_size ${batch_size} --ot_loss_batch_size ${ot_loss_batch_size}
+    done
+done
+
+
+# echo "Running benchmark/benchmark_encoder.py with kl_coeff=0.001 and batch size 64"
+# PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
 #     -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
-#     --freeze_enc_dec
+#     --freeze_enc_dec --vis_pred --metric_only --batch_size 64
 
 # echo "Running benchmark/benchmark_encoder.py with kl_coeff=0.001"
 # PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
 #     -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
 #     --freeze_enc_dec --vel_reg --vis_all_embed --vis_pred --metric_only
 
-echo "Running benchmark/benchmark_encoder.py with kl_coeff=0.001"
-PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
-    -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
-    --freeze_enc_dec --measure_perfect --use_all_embed_umap
-
-echo "Running benchmark/benchmark_encoder.py with kl_coeff=0.001"
-PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
-    -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
-    --freeze_enc_dec --measure_perfect
+# echo "Running benchmark/benchmark_encoder.py with kl_coeff=0.001"
+# PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
+#     -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
+#     --freeze_enc_dec --measure_perfect --use_all_embed_umap
 
 # flags="\
 # --freeze_enc_dec \
