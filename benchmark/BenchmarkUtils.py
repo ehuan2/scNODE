@@ -629,6 +629,12 @@ def create_parser():
         default=200,
         help="Batch size for training (default: 32)",
     )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=10,
+        help="Epochs to train on",
+    )
 
     split_type_sel = [split_type.value for split_type in list(SplitType)]
     parser.add_argument(

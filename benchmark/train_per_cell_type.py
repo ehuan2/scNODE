@@ -153,7 +153,7 @@ def model_training(
     pretrain_iters = 200
     pretrain_lr = 1e-3
     latent_coeff = args.beta  # regularization coefficient: beta
-    epochs = 10
+    epochs = args.epochs
     iters = 100
     batch_size = args.batch_size
     lr = args.lr

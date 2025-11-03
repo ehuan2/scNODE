@@ -18,18 +18,20 @@
 # PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py \
 #     -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 --freeze_enc_dec
 
-for batch_size in 256 512
+for batch_size in 256
 do
-    for ot_loss_batch_size in 512
+    for ot_loss_batch_size in 256
     do
         echo "Running benchmark/train_per_cell_type.py with kl_coeff=0.001 and batch size ${batch_size} and OT Loss BS: ${ot_loss_batch_size}"
         PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py \
             -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
-            --freeze_enc_dec --batch_size ${batch_size} --ot_loss_batch_size ${ot_loss_batch_size}
+            --freeze_enc_dec --batch_size ${batch_size} --ot_loss_batch_size ${ot_loss_batch_size} --epochs 20 \
+            --lr 0.0001 --finetune_lr 0.0001
         echo "Running benchmark/benchmark_encoder.py with kl_coeff=0.001 and batch size ${batch_size}"
         PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
             -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
-            --freeze_enc_dec --vis_pred --metric_only --batch_size ${batch_size} --ot_loss_batch_size ${ot_loss_batch_size}
+            --freeze_enc_dec --vis_pred --metric_only --batch_size ${batch_size} --ot_loss_batch_size ${ot_loss_batch_size} --epochs 20 \
+            --lr 0.0001 --finetune_lr 0.0001
     done
 done
 

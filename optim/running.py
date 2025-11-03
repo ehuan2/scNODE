@@ -105,6 +105,8 @@ def add_to_dir(args, pretrain_only):
             dir += f"/bs_{args.batch_size}"
         if args.ot_loss_batch_size != 200:
             dir += f"/ot_loss_bs_{args.ot_loss_batch_size}"
+        if args.epochs != 10:
+            dir += f"/epochs_{args.epochs}"
     return dir
 
 
