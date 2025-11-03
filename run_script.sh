@@ -18,22 +18,78 @@
 # PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py \
 #     -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 --freeze_enc_dec
 
-flags="\
---freeze_enc_dec \
---grad_norm \
---beta 0.01 \
-"
+for batch_size in 256
+do
+    for ot_loss_batch_size in 256
+    do
+        echo "Running benchmark/train_per_cell_type.py with kl_coeff=0.001 and batch size ${batch_size} and OT Loss BS: ${ot_loss_batch_size}"
+        PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py \
+            -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
+            --freeze_enc_dec --batch_size ${batch_size} --ot_loss_batch_size ${ot_loss_batch_size} --epochs 20 \
+            --lr 0.0001 --finetune_lr 0.0001
+        echo "Running benchmark/benchmark_encoder.py with kl_coeff=0.001 and batch size ${batch_size}"
+        PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
+            -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
+            --freeze_enc_dec --vis_pred --metric_only --batch_size ${batch_size} --ot_loss_batch_size ${ot_loss_batch_size} --epochs 20 \
+            --lr 0.0001 --finetune_lr 0.0001
+    done
+done
 
-echo "Running train_per_cell.py with kl_coeff=0.001, vel_reg is True, Gradnorm is True"
-PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py \
-    -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
-    $flags
 
-echo "Running benchmark/benchmark_encoder.py with kl_coeff=0.001, vel_reg is True, Gradnorm is True"
-PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
-    -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
-    $flags \
-    --vis_all_embeds --vis_pred --metric_only
+# echo "Running benchmark/benchmark_encoder.py with kl_coeff=0.001 and batch size 64"
+# PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
+#     -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
+#     --freeze_enc_dec --vis_pred --metric_only --batch_size 64
+
+# echo "Running benchmark/benchmark_encoder.py with kl_coeff=0.001"
+# PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
+#     -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
+#     --freeze_enc_dec --vel_reg --vis_all_embed --vis_pred --metric_only
+
+# echo "Running benchmark/benchmark_encoder.py with kl_coeff=0.001"
+# PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
+#     -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
+#     --freeze_enc_dec --measure_perfect --use_all_embed_umap
+
+# flags="\
+# --freeze_enc_dec \
+# --grad_norm \
+# --gamma 0.01 \
+# --beta 0.01 \
+# --vel_reg \
+# "
+
+# echo "Running benchmark/train_per_cell_type.py with kl_coeff=0.001"
+# PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py \
+#     -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
+#     $flags
+
+# echo "Running benchmark/benchmark_encoder.py with kl_coeff=0.001"
+# PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
+#     -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
+#     $flags \
+#     --vis_all_embed --vis_pred --metric_only
+
+
+# for beta in 0.001 0.0001
+# do
+#     flags="\
+#     --freeze_enc_dec \
+#     --grad_norm \
+#     --beta ${beta} \
+#     "
+
+#     echo "Running train_per_cell.py with kl_coeff=0.001, vel_reg is True, Gradnorm is True, beta is ${beta}"
+#     PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py \
+#         -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
+#         $flags
+
+#     echo "Running benchmark/benchmark_encoder.py with kl_coeff=0.001, vel_reg is True, Gradnorm is True, beta is ${beta}"
+#     PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_encoder.py \
+#         -d herring --hvgs -s remove_recovery --normalize --kl_coeff 0.001 \
+#         $flags \
+#         --vis_all_embeds --vis_pred --metric_only --pretrain_only
+# done
 
 # echo "Running train_per_cell.py with kl_coeff=0.001 and freezing enc, dec weights, beta=10"
 # PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py \

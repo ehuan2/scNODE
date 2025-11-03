@@ -608,10 +608,32 @@ def create_parser():
         "--beta", type=float, default=1.0, help="Weight of OT regularization"
     )
     parser.add_argument(
+        "--gamma", type=float, default=1.0, help="Weight of velocity regularization"
+    )
+    parser.add_argument(
         "--lr", type=float, default=1e-3, help="Weight of OT regularization"
     )
     parser.add_argument(
         "--finetune_lr", type=float, default=1e-3, help="Weight of OT regularization"
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=32,
+        help="Batch size for training (default: 32)",
+    )
+
+    parser.add_argument(
+        "--ot_loss_batch_size",
+        type=int,
+        default=200,
+        help="Batch size for training (default: 32)",
+    )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=10,
+        help="Epochs to train on",
     )
 
     split_type_sel = [split_type.value for split_type in list(SplitType)]

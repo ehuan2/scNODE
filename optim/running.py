@@ -99,6 +99,14 @@ def add_to_dir(args, pretrain_only):
         dir += f"/beta_{args.beta}" if args.beta != 1.0 else ""
         if args.vel_reg:
             dir += "/vel_reg"
+        if args.gamma != 1.0:
+            dir += f"/gamma_{args.gamma}"
+        if args.batch_size != 32:
+            dir += f"/bs_{args.batch_size}"
+        if args.ot_loss_batch_size != 200:
+            dir += f"/ot_loss_bs_{args.ot_loss_batch_size}"
+        if args.epochs != 10:
+            dir += f"/epochs_{args.epochs}"
     return dir
 
 
@@ -386,7 +394,11 @@ def scNODETrainWithPreTrain(
             # Note: we compare the predicted batch with 200 randomly picked true cells, in order to save computational
             #       time. With sufficient number of training iterations, all true cells can be used.
             ot_loss = SinkhornLoss(
-                train_data, recon_obs, blur=blur, scaling=scaling, batch_size=200
+                train_data,
+                recon_obs,
+                blur=blur,
+                scaling=scaling,
+                batch_size=args.ot_loss_batch_size,
             )
             # Dynamic regularization: Difference between encoder latent and DE latent
             dynamic_reg = SinkhornLoss(
@@ -459,7 +471,7 @@ def scNODETrainWithPreTrain(
                 )
                 vel_reg_loss = vel_reg_loss / (avg_vel_reg_loss + 1e-10)
 
-                loss += vel_reg_loss
+                loss += args.gamma * vel_reg_loss
                 epoch_pbar.set_postfix(
                     {
                         "Loss": "{:.3f} | OT={:.3f}, Dynamic_Reg={:.3f}, Vel_Reg={:.3f}".format(
