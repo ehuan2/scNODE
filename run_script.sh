@@ -4,6 +4,26 @@
 # PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py -v -d herring --hvgs --per_cell_type -s remove_recovery --cell_type_to_train MGE_dev
 # PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py -v -d herring --hvgs --per_cell_type -s remove_recovery --normalize --cell_type_to_train MGE_dev
 
+
+# echo "Running train_per_cell.py, vanilla flavour"
+# PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py \
+#     -d herring --hvgs -s remove_recovery --normalize
+# PYTHONPATH=".:$PYTHONPATH" python benchmark/train_per_cell_type.py \
+#     -d herring --hvgs -s remove_recovery --normalize \
+#     --cell_type_to_train OPC
+
+for cell_type in Astro
+do
+    PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_time_infer.py \
+        -d herring --hvgs -s remove_recovery --normalize \
+        --cell_type_to_train ${cell_type}
+        # --cell_type_to_train ${cell_type} > logs/ot_results/${cell_type}.txt
+done
+
+# PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_time_infer.py \
+#     -d herring --hvgs -s remove_recovery --normalize \
+#     --per_cell_type
+
 # PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_decoder.py -v -d herring --hvgs --per_cell_type -s remove_recovery --normalize --vis_pred --metric_only
 # PYTHONPATH=".:$PYTHONPATH" python benchmark/benchmark_decoder.py -v -d herring --hvgs --per_cell_type -s remove_recovery --normalize --vis_all_embeds --metric_only
 
