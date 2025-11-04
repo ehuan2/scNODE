@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
+from optim.evaluation import globalEvaluation
 from benchmark.BenchmarkUtils import (
     loadSCData,
     tunedOurPars,
@@ -74,6 +75,15 @@ Grad Norm: {args.grad_norm} Gamma: {args.gamma}
 Batch size: {args.batch_size} OT Loss BS: {args.ot_loss_batch_size}
 Epochs: {args.epochs}
 """
+
+
+def get_embedding(data):
+    """
+    Given a numpy array of cells x genes, return the embedding
+    """
+    embeddings, _ = latent_ode_model.vaeReconstruct([data])
+    embeddings = embeddings[0].detach().numpy()  # because we're only doing it for one
+    return embeddings
 
 
 def prep_traj_data(ann_data):
@@ -379,8 +389,7 @@ def visualize_all_embeds(ann_data, latent_ode_model, metric_only, args):
     """
     data = ann_data.X.toarray()
     labels = ann_data.obs["major_clust"].to_numpy()
-    embeddings, _ = latent_ode_model.vaeReconstruct([data])
-    embeddings = embeddings[0].detach().numpy()  # because we're only doing it for one
+    embeddings = get_embedding(data)
 
     metrics = {}
     metrics["ari"] = {}
@@ -426,10 +435,7 @@ def measure_perfect(latent_ode_model, ann_data, times_sorted, args):
         data = tp_ann_data.X.toarray()
         labels = tp_ann_data.obs["major_clust"].to_numpy()
 
-        embeddings, _ = latent_ode_model.vaeReconstruct([data])
-        embeddings = (
-            embeddings[0].detach().numpy()
-        )  # because we're only doing it for one
+        embeddings = get_embedding(data)
 
         if not args.metric_only:
             # visualize the embeddings now based on each time as well
@@ -453,6 +459,62 @@ def measure_perfect(latent_ode_model, ann_data, times_sorted, args):
     return metrics
 
 
+def get_embed_metric_dir():
+    shared_path = f"{data_name}/{split_type}/embed_metrics"
+    shared_path += f"/kl_coeff_{args.kl_coeff}" if args.kl_coeff != 0.0 else ""
+    shared_path += add_to_dir(args, args.pretrain_only)
+    fig_dir = f"figs/" + shared_path
+    os.makedirs(fig_dir, exist_ok=True)
+    return fig_dir
+
+
+def measure_ot_reg(latent_ode_model, ann_data):
+    """
+    Measures the OT regularization loss for every single timepoint
+    """
+    # steps:
+    # 1) subset the data into each timepoint and iterate over it
+    # 2) predict from the first timepoint what the next future time point embeddings will be
+    # 3) calculate the wasserstein distances
+    n_sim_cells = 2000
+    traj_data, tps, times_sorted = prep_traj_data(ann_data)
+    tps = tps_to_continuous(tps, times_sorted)
+
+    print(tps)
+
+    latent_preds = predict_latent_embeds(
+        latent_ode_model, traj_data[0], tps, n_sim_cells
+    )
+
+    metrics = {}
+
+    for t_idx, t in enumerate(times_sorted):
+        # calculate the distance from the predicted to the actual ones
+        # now calculate the VAE of the traj data
+        embeddings = get_embedding(traj_data[t_idx])
+
+        pred_global_metric = globalEvaluation(latent_preds[:, t_idx, :], embeddings)
+
+        metrics[t] = pred_global_metric
+
+    with open(f"./logs/ot_reg.txt", "a") as f:
+        pprint.pprint(metrics, stream=f, sort_dicts=True)
+
+    ots = [metrics[t]["ot"] for t in times_sorted]
+    times = range(len(times_sorted))
+
+    plt.plot(times, ots, marker="o")
+    plt.xlabel("Time (index)")
+    plt.ylabel("OT value")
+    plt.title("OT metric across time")
+    plt.grid(True)
+
+    fig_dir = get_embed_metric_dir()
+    plt.savefig(f"{fig_dir}/ot_reg.png")
+
+    return metrics
+
+
 if __name__ == "__main__":
     parser = create_parser()
     parser.add_argument("--vis_true", action="store_true")
@@ -462,6 +524,8 @@ if __name__ == "__main__":
     parser.add_argument("--pretrain_only", action="store_true")
     parser.add_argument("--measure_perfect", action="store_true")
     parser.add_argument("--use_all_embed_umap", action="store_true")
+    parser.add_argument("--measure_ot_reg", action="store_true")
+    parser.add_argument("--measure_ot_pred", action="store_true")
 
     args = parser.parse_args()
 
@@ -508,5 +572,11 @@ if __name__ == "__main__":
             ann_data, latent_ode_model, metric_only=args.metric_only, args=args
         )
 
+    # 4) Measures the perfect ARI
     if args.measure_perfect:
         measure_perfect(latent_ode_model, ann_data, times_sorted, args)
+
+    # 5) Measures the regularization loss that we have
+    # i.e. between Z^t and Z^{t + 1}
+    if args.measure_ot_reg:
+        measure_ot_reg(latent_ode_model, ann_data)
