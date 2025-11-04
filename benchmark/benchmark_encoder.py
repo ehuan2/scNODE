@@ -480,8 +480,6 @@ def measure_ot_reg(latent_ode_model, ann_data):
     traj_data, tps, times_sorted = prep_traj_data(ann_data)
     tps = tps_to_continuous(tps, times_sorted)
 
-    print(tps)
-
     latent_preds = predict_latent_embeds(
         latent_ode_model, traj_data[0], tps, n_sim_cells
     )
@@ -515,6 +513,100 @@ def measure_ot_reg(latent_ode_model, ann_data):
     return metrics
 
 
+def measure_ot_pred(latent_ode_model, ann_data, args):
+    """
+    Measures the OT regularizations between the current time point
+    and the next predicted timepoint
+    """
+    # steps:
+    # 1) subset the data into each timepoint and iterate over it
+    # 2) predict from the first timepoint what the next future time point embeddings will be
+    # 3) calculate the wasserstein distances
+    n_sim_cells = 2000
+    traj_data, tps, times_sorted = prep_traj_data(ann_data)
+    tps = tps_to_continuous(tps, times_sorted)
+
+    # so we now have two ways we want to predict the next time point
+    # 1) either from embed at t0 to t1, embed at t1 to t2, embed t2 to t3
+    # 2) or from t0 to t1, t0 to t1 to t2, t0 to t1 to t2 to t3
+    # number 2) is defined by the flag --use_time_zero_embed
+
+    if args.use_time_zero_embed:
+        # shape is (n_sim_cells, timepoints, latent_dim)
+        latent_preds = predict_latent_embeds(
+            latent_ode_model, traj_data[0], tps, n_sim_cells
+        )
+        # reorganize the shape so that we have timepoints x (n_sim_cells, latent_dim)
+        latent_preds = np.transpose(latent_preds, (1, 0, 2))
+    else:
+        latent_preds = []
+        for t in range(len(times_sorted) - 1):
+            curr_tps = torch.FloatTensor([tps[t + 1]])
+            # only predict the next time point
+            latent_pred = predict_latent_embeds(
+                latent_ode_model, traj_data[t], curr_tps, n_sim_cells
+            )
+            latent_preds.append(latent_pred[:, -1, :])
+
+    metrics = {}
+
+    for t_idx in range(len(times_sorted) - 1):
+        t = times_sorted[t_idx]
+        # calculate the distance from the predicted to the actual ones
+        # now calculate the VAE of the traj data
+        embeddings = get_embedding(traj_data[t_idx])
+        next_embeddings = get_embedding(traj_data[t_idx + 1])
+
+        metrics[t] = {
+            "cur_and_pred_ot": globalEvaluation(latent_preds[t_idx][:, :], embeddings),
+            "pred_and_next_ot": globalEvaluation(
+                latent_preds[t_idx][:, :], next_embeddings
+            ),
+            "next_time": times_sorted[t_idx + 1],
+        }
+
+    with open(f"./logs/ot_pred.txt", "a") as f:
+        pprint.pprint(metrics, stream=f, sort_dicts=True)
+
+    print(f"Finish writing the metrics... now plotting...")
+
+    # now we try to plot these values
+    # we generate a plot with two lines, one for cur_and_pred_ot and one for pred_and_next_ot
+    fig, ax = plt.subplots(figsize=(8, 6))
+    # we get all of the timepoints until the last one, makes sense
+    cur_and_pred_ots = [metrics[t]["cur_and_pred_ot"]["ot"] for t in times_sorted[:-1]]
+    pred_and_next_ots = [
+        metrics[t]["pred_and_next_ot"]["ot"] for t in times_sorted[:-1]
+    ]
+    times = range(len(times_sorted) - 1)
+
+    (line1,) = ax.plot(
+        times,
+        cur_and_pred_ots,
+        marker="o",
+        label="Current and Predicted OT",
+        color="blue",
+    )
+    (line2,) = ax.plot(
+        times, pred_and_next_ots, marker="o", label="Predicted and Next OT", color="red"
+    )
+
+    ax.set_xlabel("Time (index)")
+    ax.set_ylabel("OT value")
+    ax.set_title(
+        f"OT metric across time ({'Uses time zero embed' if args.use_time_zero_embed else 'Uses sequential embeds'})"
+    )
+    ax.grid(True)
+    ax.legend(
+        handles=[line1, line2],
+        loc="upper left",
+    )
+
+    fig_dir = get_embed_metric_dir()
+    fig.savefig(f"{fig_dir}/ot_pred_use_time_zero_embed_{args.use_time_zero_embed}.png")
+    plt.close(fig)
+
+
 if __name__ == "__main__":
     parser = create_parser()
     parser.add_argument("--vis_true", action="store_true")
@@ -526,6 +618,7 @@ if __name__ == "__main__":
     parser.add_argument("--use_all_embed_umap", action="store_true")
     parser.add_argument("--measure_ot_reg", action="store_true")
     parser.add_argument("--measure_ot_pred", action="store_true")
+    parser.add_argument("--use_time_zero_embed", action="store_true")
 
     args = parser.parse_args()
 
@@ -580,3 +673,8 @@ if __name__ == "__main__":
     # i.e. between Z^t and Z^{t + 1}
     if args.measure_ot_reg:
         measure_ot_reg(latent_ode_model, ann_data)
+
+    # 6) Measures the OT between Z^t and predicted Z^{t + 1} and compare it with
+    # the OT between predicted Z^{t + 1} and actual Z^{t + 1}
+    if args.measure_ot_pred:
+        measure_ot_pred(latent_ode_model, ann_data, args)
