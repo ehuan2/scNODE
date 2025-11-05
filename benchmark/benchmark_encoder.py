@@ -302,7 +302,6 @@ def visualize_pred_embeds(ann_data, latent_ode_model, tps, metric_only, args):
     cell_types = ann_data.obs["major_clust"].unique().tolist()
 
     latent_embeddings = [[] for _ in tps]
-    num_cells = 1000
 
     for cell_type in cell_types:
         print(f"--- Running for cell type {cell_type} ---")
@@ -316,8 +315,9 @@ def visualize_pred_embeds(ann_data, latent_ode_model, tps, metric_only, args):
 
         start_data = cell_traj_data[args.mature_cell_tp_index]
 
+        # the number of cells should just be the number of cells for that cell type at that timepoint
         cell_type_latent_embeddings = predict_latent_embeds(
-            latent_ode_model, start_data, tps, num_cells
+            latent_ode_model, start_data, tps, n_sim_cells=start_data.shape[0]
         )
         print(f"cell type latent embeddings: {cell_type_latent_embeddings.shape}")
         # join this together based on time -- range over the time domain
