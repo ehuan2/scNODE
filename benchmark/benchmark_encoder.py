@@ -498,7 +498,7 @@ def visualize_all_embeds(ann_data, latent_ode_model, metric_only, args):
     """
     data = ann_data.X.toarray()
     labels = ann_data.obs["major_clust"].to_numpy()
-    embeddings = get_embedding(data)
+    embeddings = get_embedding(data, latent_ode_model)
 
     metrics = {}
     metrics["ari"] = {}
@@ -582,7 +582,7 @@ def measure_perfect(latent_ode_model, ann_data, times_sorted, args):
     )
 
     ax.set_xlabel("Time (index)")
-    ax.set_ylabel("OT value")
+    ax.set_ylabel("ARI value")
     ax.set_title(f"ARI over time")
     ax.grid(True)
     fig_dir = get_embed_metric_dir()
@@ -612,7 +612,7 @@ def measure_ot_reg(latent_ode_model, ann_data, args):
     for t_idx, t in enumerate(times_sorted):
         # calculate the distance from the predicted to the actual ones
         # now calculate the VAE of the traj data
-        embeddings = get_embedding(traj_data[t_idx])
+        embeddings = get_embedding(traj_data[t_idx], latent_ode_model)
 
         pred_global_metric = globalEvaluation(latent_preds[:, t_idx, :], embeddings)
 
@@ -625,6 +625,7 @@ def measure_ot_reg(latent_ode_model, ann_data, args):
     ots = [metrics[t]["ot"] for t in times_sorted]
     times = range(len(times_sorted))
 
+    plt.figure(figsize=(8, 6))
     plt.plot(times, ots, marker="o")
     plt.xlabel("Time (index)")
     plt.ylabel("OT value")
@@ -633,6 +634,7 @@ def measure_ot_reg(latent_ode_model, ann_data, args):
 
     fig_dir = get_embed_metric_dir()
     plt.savefig(f"{fig_dir}/ot_reg.png")
+    plt.close()
 
     return metrics
 
@@ -680,8 +682,8 @@ def measure_ot_pred(latent_ode_model, ann_data, args):
         t = times_sorted[t_idx]
         # calculate the distance from the predicted to the actual ones
         # now calculate the VAE of the traj data
-        embeddings = get_embedding(traj_data[t_idx])
-        next_embeddings = get_embedding(traj_data[t_idx + 1])
+        embeddings = get_embedding(traj_data[t_idx], latent_ode_model)
+        next_embeddings = get_embedding(traj_data[t_idx + 1], latent_ode_model)
 
         metrics[t] = {
             "cur_and_pred_ot": globalEvaluation(latent_preds[t_idx][:, :], embeddings),
@@ -818,7 +820,6 @@ if __name__ == "__main__":
         )
 
     # 4) Measures the perfect ARI
-    # TODO: log this out to a logfile AND plot this as a line graph!
     if args.measure_perfect:
         measure_perfect(latent_ode_model, ann_data, times_sorted, args)
 
