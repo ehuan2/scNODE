@@ -77,7 +77,7 @@ Epochs: {args.epochs}
 """
 
 
-def get_embedding(data):
+def get_embedding(data, latent_ode_model):
     """
     Given a numpy array of cells x genes, return the embedding
     """
@@ -295,27 +295,41 @@ def visualize_pred_embeds(ann_data, latent_ode_model, tps, metric_only, args):
     # b. combine all the data together per time point
     # c. then umap/pca them
 
+    # skip the first args.mature_cell_tp_index time points
+    tps = tps[args.mature_cell_tp_index :]
+    print(f"Tps to evaluate: {tps}")
+
     cell_types = ann_data.obs["major_clust"].unique().tolist()
 
     latent_embeddings = [[] for _ in tps]
-    num_cells = 300
+    num_cells = 1000
 
     for cell_type in cell_types:
         print(f"--- Running for cell type {cell_type} ---")
         cell_type_data = ann_data[ann_data.obs["major_clust"] == cell_type].copy()
         cell_traj_data, _, _ = prep_traj_data(cell_type_data)
 
+        # start from args.mature_cell_tp_index time point
+        if args.mature_cell_tp_index >= len(cell_traj_data):
+            print(f"Skipping cell type {cell_type} as it has insufficient time points")
+            continue
+
+        start_data = cell_traj_data[args.mature_cell_tp_index]
+
         cell_type_latent_embeddings = predict_latent_embeds(
-            latent_ode_model, cell_traj_data[0], tps, num_cells
+            latent_ode_model, start_data, tps, num_cells
         )
         print(f"cell type latent embeddings: {cell_type_latent_embeddings.shape}")
         # join this together based on time -- range over the time domain
         for j in range(cell_type_latent_embeddings.shape[1]):
-            latent_embeddings[j].append(cell_type_latent_embeddings[:, j, :])
+            latent_embeddings[j].append(
+                {"embed": cell_type_latent_embeddings[:, j, :], "cell_type": cell_type}
+            )
 
     # latent_embeddings should be tps x (cell_type, cells, genes)
     print(
-        f"time points x cell types x (cells, genes): ({len(latent_embeddings)}, {len(latent_embeddings[0])}, {latent_embeddings[0][0].shape})"
+        f"time points x cell types x (cells, genes): ({len(latent_embeddings)}, "
+        f"{len(latent_embeddings[0])}, {latent_embeddings[0][0]['embed'].shape})"
     )
 
     # so we concatenate it on the 0th axis, so that way it becomes (cells, genes)
@@ -329,17 +343,20 @@ def visualize_pred_embeds(ann_data, latent_ode_model, tps, metric_only, args):
         # tp_embed is cell_type x (cells, genes)
         cell_type_labels = np.concatenate(
             [
-                np.repeat(cell_types[cell_type_idx], tp_embed[cell_type_idx].shape[0])
-                for cell_type_idx in range(len(tp_embed))
+                np.repeat(cell_type_dict["cell_type"], cell_type_dict["embed"].shape[0])
+                for cell_type_dict in tp_embed
             ]
         )
-        tp_embed = np.concatenate(tp_embed, axis=0)
+        tp_embed = np.concatenate(
+            [cell_type_dict["embed"] for cell_type_dict in tp_embed], axis=0
+        )
 
         # for altogether predictions
         final_labels.append(cell_type_labels)
         final_embeds.append(tp_embed)
 
-        timepoint = times_sorted[t_idx]
+        # now we just have to make sure that the timepoint index is correct
+        timepoint = times_sorted[t_idx + args.mature_cell_tp_index]
 
         # now we visualize this:
         if not metric_only:
@@ -357,12 +374,9 @@ def visualize_pred_embeds(ann_data, latent_ode_model, tps, metric_only, args):
         # now we should run the NMI and ARI metrics on this
         metrics["ari"][timepoint] = evaluate_ari(tp_embed, cell_type_labels)
         print(
-            f"Successfully visualized the latent embeddings for time point: {times_sorted[t_idx]}"
+            f"Successfully visualized the latent embeddings for time point: {timepoint}"
         )
 
-    # finally, visualize all the embeddings together:
-    final_labels = np.concatenate(final_labels, axis=0)
-    final_embeds = np.concatenate(final_embeds, axis=0)
     if not metric_only:
         visualize_cluster_embeds(
             final_embeds,
@@ -374,12 +388,107 @@ def visualize_pred_embeds(ann_data, latent_ode_model, tps, metric_only, args):
             is_pred=True,
             title=f"Predicted encoder cell type embeddings for all",
         )
-    metrics["ari"]["all"] = evaluate_ari(final_embeds, final_labels)
+
+    if args.ari_all:
+        # finally, visualize all the embeddings together:
+        final_labels = np.concatenate(final_labels, axis=0)
+        final_embeds = np.concatenate(final_embeds, axis=0)
+        metrics["ari"]["all"] = evaluate_ari(final_embeds, final_labels)
 
     with open(f"./logs/pred_embed_metrics.txt", "a") as f:
         f.write(get_description(args))
         pprint.pprint(metrics, stream=f, sort_dicts=True)
     print(f"Finished writing ARI metrics for predicted embeddings")
+    return metrics
+
+
+def get_embed_metric_dir():
+    shared_path = f"{data_name}/{split_type}/embed_metrics"
+    shared_path += f"/kl_coeff_{args.kl_coeff}" if args.kl_coeff != 0.0 else ""
+    shared_path += add_to_dir(args, args.pretrain_only)
+    fig_dir = f"figs/" + shared_path
+    os.makedirs(fig_dir, exist_ok=True)
+    return fig_dir
+
+
+def plot_tp_starts(all_metrics):
+    """
+    Given the ARI metrics per time point start, do:
+    1) Plot them together
+    2) Plot the average ARI depending on the time point start
+    """
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+    avg_ari_per_time = {}
+    median_ari_per_time = {}
+    min_ari_per_time = {}
+    max_ari_per_time = {}
+
+    for tp_index in all_metrics:
+        ari_metrics = all_metrics[tp_index]["ari"]
+        times = list([key for key in ari_metrics.keys() if key != "all"])
+        ari_values = [ari_metrics[t] for t in times if t != "all"]
+
+        # measure the mean, median, min and max
+        avg_ari_per_time[tp_index] = np.mean(ari_values)
+        median_ari_per_time[tp_index] = np.median(ari_values)
+        min_ari_per_time[tp_index] = np.min(ari_values)
+        max_ari_per_time[tp_index] = np.max(ari_values)
+
+        ax.plot(
+            range(tp_index, tp_index + len(times)),
+            ari_values,
+            marker="o",
+            label=f"Start TP index {tp_index} (time {times[0]})",
+        )
+
+    ax.set_xlabel("Time Point Index")
+    ax.set_ylabel("ARI")
+    ax.set_title("ARI metrics across different time point starts")
+    ax.grid(True)
+    fig_dir = get_embed_metric_dir()
+    fig.savefig(f"{fig_dir}/ari_metrics_different_tp_starts.png")
+    plt.close(fig)
+
+    # now plot the average ARI per time point start
+    fig, ax = plt.subplots(figsize=(8, 6))
+    tp_indices = list(avg_ari_per_time.keys())
+
+    # now calculate the values we want to hold
+    avg_ari_values = [avg_ari_per_time[idx] for idx in tp_indices]
+    median_ari_values = [median_ari_per_time[idx] for idx in tp_indices]
+    min_ari_values = [min_ari_per_time[idx] for idx in tp_indices]
+    max_ari_values = [max_ari_per_time[idx] for idx in tp_indices]
+
+    ax.plot(
+        tp_indices,
+        avg_ari_values,
+        marker="o",
+    )
+
+    # Add error bars representing min/max range
+    ax.vlines(
+        tp_indices,
+        min_ari_values,
+        max_ari_values,
+        color="tab:gray",
+        alpha=0.6,
+        label="Min–Max Range",
+    )
+
+    # Add median markers
+    ax.scatter(
+        tp_indices, median_ari_values, color="tab:red", marker="x", label="Median ARI"
+    )
+
+    ax.set_xlabel("Time Point Start Index")
+    ax.set_ylabel("Average ARI")
+    ax.set_title("Average ARI across time points vs. Time Point Start Index")
+    ax.grid(True)
+    fig.savefig(f"{fig_dir}/average_ari_vs_tp_start_index.png")
+    plt.close(fig)
+
+    print(f"Finished plotting ARI metrics across different time point starts")
 
 
 def visualize_all_embeds(ann_data, latent_ode_model, metric_only, args):
@@ -435,7 +544,7 @@ def measure_perfect(latent_ode_model, ann_data, times_sorted, args):
         data = tp_ann_data.X.toarray()
         labels = tp_ann_data.obs["major_clust"].to_numpy()
 
-        embeddings = get_embedding(data)
+        embeddings = get_embedding(data, latent_ode_model)
 
         if not args.metric_only:
             # visualize the embeddings now based on each time as well
@@ -457,15 +566,6 @@ def measure_perfect(latent_ode_model, ann_data, times_sorted, args):
     print(f"Printing the ARI metrics per timepoint")
     pprint.pprint(metrics)
     return metrics
-
-
-def get_embed_metric_dir():
-    shared_path = f"{data_name}/{split_type}/embed_metrics"
-    shared_path += f"/kl_coeff_{args.kl_coeff}" if args.kl_coeff != 0.0 else ""
-    shared_path += add_to_dir(args, args.pretrain_only)
-    fig_dir = f"figs/" + shared_path
-    os.makedirs(fig_dir, exist_ok=True)
-    return fig_dir
 
 
 def measure_ot_reg(latent_ode_model, ann_data):
@@ -533,6 +633,9 @@ def measure_ot_pred(latent_ode_model, ann_data, args):
 
     if args.use_time_zero_embed:
         # shape is (n_sim_cells, timepoints, latent_dim)
+        # TODO: if the measure does not match up, it's likely due to
+        # TODO: first latent sample != latent_seq at the first step
+        #
         latent_preds = predict_latent_embeds(
             latent_ode_model, traj_data[0], tps, n_sim_cells
         )
@@ -619,6 +722,9 @@ if __name__ == "__main__":
     parser.add_argument("--measure_ot_reg", action="store_true")
     parser.add_argument("--measure_ot_pred", action="store_true")
     parser.add_argument("--use_time_zero_embed", action="store_true")
+    parser.add_argument("--mature_cell_tp_index", type=int, default=0)
+    parser.add_argument("--measure_all_tp_starts", action="store_true")
+    parser.add_argument("--ari_all", action="store_true")
 
     args = parser.parse_args()
 
@@ -653,10 +759,32 @@ if __name__ == "__main__":
         )
 
     # 2) visualize the umap embeddings of the learned embeddings at a time point, colour per cell type
-    if args.vis_pred:
-        visualize_pred_embeds(
-            ann_data, latent_ode_model, tps, metric_only=args.metric_only, args=args
-        )
+    # basically also catch any errors (of forgetting the vis_pred flag) if they include the other ones
+    if args.vis_pred or args.measure_all_tp_starts or args.mature_cell_tp_index != 0:
+        if args.measure_all_tp_starts:
+            # we want to run the prediction starting from each time point
+            all_metrics = {}
+            for start_tp_index in range(len(times_sorted) - 1):
+                args.mature_cell_tp_index = start_tp_index
+                print(
+                    f"Measuring predicted embeddings starting from time point index {start_tp_index} (time {times_sorted[start_tp_index]})"
+                )
+                all_metrics[start_tp_index] = visualize_pred_embeds(
+                    ann_data,
+                    latent_ode_model,
+                    tps,
+                    metric_only=args.metric_only,
+                    args=args,
+                )
+
+            # now we plot these ARI metrics across different tp starts
+            plot_tp_starts(all_metrics)
+
+        else:
+            # 7) Measures the ARI metrics only after a specified timepoint (we would expect these timepoints to match up)
+            visualize_pred_embeds(
+                ann_data, latent_ode_model, tps, metric_only=args.metric_only, args=args
+            )
 
     # 3) Measure how good the encoder is generally (encode all the ann_data measure its ARI)
     if args.vis_all_embeds:
@@ -666,6 +794,7 @@ if __name__ == "__main__":
         )
 
     # 4) Measures the perfect ARI
+    # TODO: log this out to a logfile AND plot this as a line graph!
     if args.measure_perfect:
         measure_perfect(latent_ode_model, ann_data, times_sorted, args)
 
