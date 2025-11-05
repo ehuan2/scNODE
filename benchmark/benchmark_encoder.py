@@ -564,11 +564,34 @@ def measure_perfect(latent_ode_model, ann_data, times_sorted, args):
         metrics[tp] = evaluate_ari(embeddings, labels)
 
     print(f"Printing the ARI metrics per timepoint")
-    pprint.pprint(metrics)
+
+    with open(f"./logs/perfect_ari.txt", "a") as f:
+        f.write(get_description(args))
+        pprint.pprint(metrics, stream=f, sort_dicts=True)
+
+    # now we try to plot these values
+    # we generate a plot with two lines, one for cur_and_pred_ot and one for pred_and_next_ot
+    fig, ax = plt.subplots(figsize=(8, 6))
+    # we get all of the timepoints until the last one, makes sense
+    aris = [metrics[tp] for tp in metrics]
+    times = range(len(times_sorted))
+    ax.plot(
+        times,
+        aris,
+        marker="o",
+    )
+
+    ax.set_xlabel("Time (index)")
+    ax.set_ylabel("OT value")
+    ax.set_title(f"ARI over time")
+    ax.grid(True)
+    fig_dir = get_embed_metric_dir()
+    fig.savefig(f"{fig_dir}/perfect.png")
+    plt.close(fig)
     return metrics
 
 
-def measure_ot_reg(latent_ode_model, ann_data):
+def measure_ot_reg(latent_ode_model, ann_data, args):
     """
     Measures the OT regularization loss for every single timepoint
     """
@@ -596,6 +619,7 @@ def measure_ot_reg(latent_ode_model, ann_data):
         metrics[t] = pred_global_metric
 
     with open(f"./logs/ot_reg.txt", "a") as f:
+        f.write(get_description(args))
         pprint.pprint(metrics, stream=f, sort_dicts=True)
 
     ots = [metrics[t]["ot"] for t in times_sorted]
@@ -635,7 +659,6 @@ def measure_ot_pred(latent_ode_model, ann_data, args):
         # shape is (n_sim_cells, timepoints, latent_dim)
         # TODO: if the measure does not match up, it's likely due to
         # TODO: first latent sample != latent_seq at the first step
-        #
         latent_preds = predict_latent_embeds(
             latent_ode_model, traj_data[0], tps, n_sim_cells
         )
@@ -669,6 +692,7 @@ def measure_ot_pred(latent_ode_model, ann_data, args):
         }
 
     with open(f"./logs/ot_pred.txt", "a") as f:
+        f.write(get_description(args))
         pprint.pprint(metrics, stream=f, sort_dicts=True)
 
     print(f"Finish writing the metrics... now plotting...")
@@ -801,7 +825,7 @@ if __name__ == "__main__":
     # 5) Measures the regularization loss that we have
     # i.e. between Z^t and Z^{t + 1}
     if args.measure_ot_reg:
-        measure_ot_reg(latent_ode_model, ann_data)
+        measure_ot_reg(latent_ode_model, ann_data, args)
 
     # 6) Measures the OT between Z^t and predicted Z^{t + 1} and compare it with
     # the OT between predicted Z^{t + 1} and actual Z^{t + 1}
