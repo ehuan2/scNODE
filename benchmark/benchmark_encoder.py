@@ -1,5 +1,6 @@
 # benchmark_decoder.py.
 # used to benchmark the decoder and encoder
+import ast
 import os
 import pickle
 
@@ -736,6 +737,105 @@ def measure_ot_pred(latent_ode_model, ann_data, args):
     plt.close(fig)
 
 
+def measure_cell_counts(ann_data, times_sorted, args):
+    """
+    Measure the number of cells there are per timepoint, and calculate the dictionary
+    such that dict[t] = dictionary of cell types to counts
+    """
+
+    cell_count_path = "./logs/cell_type_counts.txt"
+    if not os.path.exists(cell_count_path):
+        cell_types = ann_data.obs["major_clust"].unique().tolist()
+        data = {}
+        for t in times_sorted:
+            timepoint_data = ann_data[ann_data.obs["numerical_age"] == t]
+            data[t] = {}
+
+            total = 0
+
+            for cell_type in cell_types:
+                print(f"Working on timepoint {t}, cell type: {cell_type}")
+                data[t][cell_type] = (
+                    (timepoint_data.obs["major_clust"] == cell_type).sum().item()
+                )
+                total += data[t][cell_type]
+
+            data[t]["total"] = total
+
+        pprint.pprint(data)
+
+        with open(cell_count_path, "w") as f:
+            pprint.pprint(data, stream=f, sort_dicts=True)
+
+    with open(cell_count_path, "r") as f:
+        text = f.read().strip()
+
+    data = ast.literal_eval(text)
+    data = {float(k): v for k, v in data.items()}  # ensure float timepoints
+
+    time_points = sorted(data.keys())
+    cell_types = [k for k in data[time_points[0]].keys() if k != "total"]
+    raw_cell_counts = {
+        cell: [data[t][cell] for t in time_points] for cell in cell_types
+    }
+
+    cell_ratios = {
+        cell: [data[t][cell] / data[t]["total"] for t in time_points]
+        for cell in cell_types
+    }
+    cell_counts = raw_cell_counts if not args.measure_cell_proportion else cell_ratios
+
+    if args.measure_cell_count_time_idxs:
+        time_points = range(len(data.keys()))
+
+    # --- Step 3: Plot either one or all ---
+    counts_or_ratio = "Counts" if not args.measure_cell_proportion else "Ratio"
+
+    if args.measure_cell_specific:
+        cell = args.measure_cell_specific
+        if cell not in cell_counts:
+            raise ValueError(
+                f"Cell type '{cell}' not found. Available: {', '.join(cell_types)}"
+            )
+
+        plt.figure(figsize=(6, 4))
+        plt.plot(time_points, cell_counts[cell], marker="o", color="tab:blue")
+        plt.title(f"{cell} {counts_or_ratio} Over Time")
+        plt.xlabel("Time")
+        plt.ylabel("Cell count")
+        plt.grid(True, linestyle="--", alpha=0.6)
+        plt.tight_layout()
+        if not args.measure_cell_count_time_idxs:
+            plt.savefig(f"./figs/{cell}_{counts_or_ratio}.png")
+        else:
+            plt.savefig(f"./figs/{cell}_{counts_or_ratio}_time_idxs.png")
+
+    else:
+        rows, cols = 4, 5
+        fig, axes = plt.subplots(rows, cols, figsize=(15, 10), sharex=True)
+        axes = axes.flatten()
+
+        for i, cell in enumerate(cell_types):
+            ax = axes[i]
+            ax.plot(time_points, cell_counts[cell], marker="o")
+            ax.set_title(cell, fontsize=9)
+            ax.tick_params(axis="both", which="major", labelsize=8)
+            if i // cols == rows - 1:
+                ax.set_xlabel("Time")
+            if i % cols == 0:
+                ax.set_ylabel(f"{counts_or_ratio}")
+
+        for j in range(len(cell_types), len(axes)):
+            axes[j].axis("off")
+
+        fig.suptitle(f"Cell Type {counts_or_ratio} Over Time", fontsize=14)
+        plt.tight_layout(rect=[0, 0, 1, 0.97])
+        if not args.measure_cell_count_time_idxs:
+            plt.savefig(f"./figs/cell_type_plot_{counts_or_ratio}.png")
+        else:
+            plt.savefig(f"./figs/cell_type_plot_time_idxs_{counts_or_ratio}.png")
+
+
 if __name__ == "__main__":
     parser = create_parser()
     parser.add_argument("--vis_true", action="store_true")
@@ -751,6 +851,15 @@ if __name__ == "__main__":
     parser.add_argument("--mature_cell_tp_index", type=int, default=0)
     parser.add_argument("--measure_all_tp_starts", action="store_true")
     parser.add_argument("--ari_all", action="store_true")
+    parser.add_argument("--measure_cell_counts", action="store_true")
+    parser.add_argument("--measure_cell_count_time_idxs", action="store_true")
+    parser.add_argument(
+        "--measure_cell_specific",
+        type=str,
+        default=None,
+        help="Optional: plot only this single cell type (e.g., --cell Astro)",
+    )
+    parser.add_argument("--measure_cell_proportion", action="store_true")
 
     args = parser.parse_args()
 
@@ -832,3 +941,7 @@ if __name__ == "__main__":
     # the OT between predicted Z^{t + 1} and actual Z^{t + 1}
     if args.measure_ot_pred:
         measure_ot_pred(latent_ode_model, ann_data, args)
+
+    # 8) Measures the raw cell type counts, and plots them as well
+    if args.measure_cell_counts:
+        measure_cell_counts(ann_data, times_sorted, args)
