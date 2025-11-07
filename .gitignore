@@ -156,6 +156,9 @@ celerybeat.pid
 # SageMath parsed files
 *.sage.py
 
+# the ot figs
+benchmark/ot_figs/*
+
 # Environments
 .env
 .venv

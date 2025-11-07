@@ -1,5 +1,6 @@
 import torch
 from geomloss import SamplesLoss
+import os
 import ot
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -10,11 +11,10 @@ import argparse
 # this uses two different libraries, Geomloss and POT
 # Geomloss: is differentiable, and is actually used in scNODE
 # POT: is not differentiable, and can't be used in scNODE, BUT does give the proper OT plan
-def ot_example(a, b, name, use_euclidean=False):
+def ot_example(a, b, name, use_euclidean=False, uniform=False):
     ot_solver = SamplesLoss(
         "sinkhorn", p=2, blur=0.05, scaling=0.5, debias=True, backend="tensorized"
     )
-    print(f"Balanced cell types: {ot_solver(a, b)}")
 
     # note: we assume uniform weighting to all of them, which is the default!
     a = a.cpu().numpy()
@@ -28,11 +28,14 @@ def ot_example(a, b, name, use_euclidean=False):
         ot_result = ot.solve_sample(
             a, b, reg=0.05, metric="euclidean"
         )  # returns full transport plan, should be the same as blur=0.05
+    elif uniform:
+        a_weight = ot.utils.unif(len(a))
+        b_weight = ot.utils.unif(len(b))
+        ot_result = ot.solve_sample(a, b, a_weight, b_weight)
     else:
         ot_result = ot.solve_sample(
             a, b, reg=0.05
         )  # returns full transport plan, should be the same as blur=0.05
-
     print(f"Transport plan: {ot_result.plan} with a value of: {ot_result.value}")
 
     a_labels = [f"{a[i]}" for i in range(len(a))]
@@ -50,12 +53,30 @@ def ot_example(a, b, name, use_euclidean=False):
     plt.title(f"Transport Plan (ε={0.05})")
     plt.xlabel("Target points (b)")
     plt.ylabel("Source points (a)")
-    plt.savefig(f"./ot_figs/example_ot_{name}_euclidean_{use_euclidean}.png")
+
+    a = torch.FloatTensor(a)
+    b = torch.FloatTensor(b)
+
+    png_name = "euclidean" if use_euclidean else ("uniform" if uniform else "W2")
+    os.makedirs(f"./ot_figs/{name}/plan", exist_ok=True)
+    with open(f"./ot_figs/{name}/results.txt", "a") as f:
+        f.write(f"Geomloss Loss ({png_name}): {ot_solver(a, b)}\n")
+        f.write(f"OT Loss ({png_name}): {ot_result.value}\n")
+
+    plt.savefig(f"./ot_figs/{name}/plan/{png_name}.png")
     return ot_result
 
 
 def plot_transport_same(
-    a, b, P=None, reg=None, show_flows=True, threshold=0.3, name="", use_euclidean=False
+    a,
+    b,
+    P=None,
+    reg=None,
+    show_flows=True,
+    threshold=0.3,
+    name="",
+    use_euclidean=False,
+    uniform=False,
 ):
     """
     Plot source (a) and target (b) in the same coordinate space.
@@ -108,12 +129,15 @@ def plot_transport_same(
     ax.axis("equal")
     ax.legend(loc="upper left")
 
-    plt.savefig(f"./ot_figs/{name}_euclidean_{use_euclidean}.png")
+    png_name = "euclidean" if use_euclidean else ("uniform" if uniform else "W2")
+    os.makedirs(f"./ot_figs/{name}/vis", exist_ok=True)
+    plt.savefig(f"./ot_figs/{name}/vis/{png_name}.png")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--euclidean", action="store_true")
+    parser.add_argument("--uniform", action="store_true")
     args = parser.parse_args()
 
     # so first off do a balanced cell type
@@ -148,7 +172,11 @@ if __name__ == "__main__":
     )
 
     balanced_result = ot_example(
-        balanced_a, balanced_b, "balanced", use_euclidean=args.euclidean
+        balanced_a,
+        balanced_b,
+        "balanced",
+        use_euclidean=args.euclidean,
+        uniform=args.uniform,
     )
     plot_transport_same(
         balanced_a,
@@ -157,6 +185,7 @@ if __name__ == "__main__":
         reg=0.05,
         name="balanced",
         use_euclidean=args.euclidean,
+        uniform=args.uniform,
     )
 
     # next, do a unequal version of this
@@ -191,7 +220,11 @@ if __name__ == "__main__":
     )
 
     unequal_result = ot_example(
-        unequal_a, unequal_b, "unequal", use_euclidean=args.euclidean
+        unequal_a,
+        unequal_b,
+        "unequal",
+        use_euclidean=args.euclidean,
+        uniform=args.uniform,
     )
     plot_transport_same(
         unequal_a,
@@ -200,6 +233,7 @@ if __name__ == "__main__":
         reg=0.05,
         name="unequal",
         use_euclidean=args.euclidean,
+        uniform=args.uniform,
     )
 
     # finally, we do a version where the number is higher in a than b
@@ -230,7 +264,11 @@ if __name__ == "__main__":
     )
 
     less_holes_result = ot_example(
-        less_holes_a, less_holes_b, "less_holes", use_euclidean=args.euclidean
+        less_holes_a,
+        less_holes_b,
+        "less_holes",
+        use_euclidean=args.euclidean,
+        uniform=args.uniform,
     )
     plot_transport_same(
         less_holes_a,
@@ -239,4 +277,5 @@ if __name__ == "__main__":
         reg=0.05,
         name="less_holes",
         use_euclidean=args.euclidean,
+        uniform=args.uniform,
     )

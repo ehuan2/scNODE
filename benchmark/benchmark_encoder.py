@@ -125,6 +125,7 @@ def visualize_cluster_embeds(
     args,
     is_embedding=False,
     title=None,
+    plot_times=False,
 ):
     """
     Visualize UMAP embeddings colored by cell major clusters.
@@ -200,30 +201,53 @@ def visualize_cluster_embeds(
     n_clusters = len(unique_clusters)
     cmap = plt.cm.get_cmap("tab20", 20)
     color_list = [cmap(i) for i in range(n_clusters)]
-    num_cols = max(1, len(unique_clusters) // 7)
+    num_cols = max(1, len(unique_clusters) // 10)
 
-    # --- Plot ---
-    fig, ax = plt.subplots(figsize=(7, 6))
-    ax.set_title("UMAP colored by major cluster", fontsize=15)
+    if plot_times:
+        norm = plt.Normalize(vmin=min(unique_clusters), vmax=max(unique_clusters))
+        cmap = plt.cm.get_cmap("viridis")  # continuous colormap
+        colors = cmap(norm(true_cell_clusters))  # get color for each point
 
-    for i, clust in enumerate(unique_clusters):
-        cluster_idx = np.where(true_cell_clusters == clust)[0]
-        ax.scatter(
-            true_umap_traj[cluster_idx, 0],
-            true_umap_traj[cluster_idx, 1],
-            label=str(clust),
-            color=color_list[i],
+        # --- Plot ---
+        fig, ax = plt.subplots(figsize=(7, 6))
+        ax.set_title("UMAP colored by major cluster (continuous)", fontsize=15)
+
+        sc = ax.scatter(
+            true_umap_traj[:, 0],
+            true_umap_traj[:, 1],
+            c=true_cell_clusters,
+            cmap=cmap,
             s=0.05 if true_data.shape[0] > 100_000 else 10,
             alpha=0.7,
         )
 
-    ax.legend(
-        loc="center left",
-        bbox_to_anchor=(1.1, 0.5),
-        markerscale=50 if true_data.shape[0] > 100_000 else 1,
-        ncol=num_cols,
-        title="Major Cluster",
-    )
+        # Add colorbar for continuous values
+        cbar = plt.colorbar(sc, ax=ax)
+        cbar.set_label("Cluster (continuous scale)", rotation=270, labelpad=15)
+
+    else:
+        # --- Plot ---
+        fig, ax = plt.subplots(figsize=(7, 6))
+        ax.set_title("UMAP colored by major cluster", fontsize=15)
+
+        for i, clust in enumerate(unique_clusters):
+            cluster_idx = np.where(true_cell_clusters == clust)[0]
+            ax.scatter(
+                true_umap_traj[cluster_idx, 0],
+                true_umap_traj[cluster_idx, 1],
+                label=str(clust),
+                color=color_list[i],
+                s=0.05 if true_data.shape[0] > 100_000 else 10,
+                alpha=0.7,
+            )
+
+        ax.legend(
+            loc="center left",
+            bbox_to_anchor=(1.1, 0.5),
+            markerscale=50 if true_data.shape[0] > 100_000 else 1,
+            ncol=num_cols,
+            title="Major Cluster",
+        )
 
     if title is not None:
         plt.suptitle(title)
@@ -335,7 +359,8 @@ def visualize_pred_embeds(ann_data, latent_ode_model, tps, metric_only, args):
 
     # so we concatenate it on the 0th axis, so that way it becomes (cells, genes)
     # however, we also need to create the (cells,) cell_type labels
-    final_labels = []
+    cell_type_final_labels = []
+    time_labels = []
     final_embeds = []
 
     metrics = {}
@@ -353,14 +378,20 @@ def visualize_pred_embeds(ann_data, latent_ode_model, tps, metric_only, args):
         )
 
         # for altogether predictions
-        final_labels.append(cell_type_labels)
+        cell_type_final_labels.append(cell_type_labels)
+        time_labels.append(
+            np.repeat(
+                [times_sorted[t_idx + args.mature_cell_tp_index]], tp_embed.shape[0]
+            )
+        )
+        print(time_labels[-1].shape)
         final_embeds.append(tp_embed)
 
         # now we just have to make sure that the timepoint index is correct
         timepoint = times_sorted[t_idx + args.mature_cell_tp_index]
 
-        # now we visualize this:
-        if not metric_only:
+        # now we visualize this, only if it's not the time visualization:
+        if not metric_only and not args.vis_pred_times:
             visualize_cluster_embeds(
                 tp_embed,
                 cell_type_labels,
@@ -378,23 +409,27 @@ def visualize_pred_embeds(ann_data, latent_ode_model, tps, metric_only, args):
             f"Successfully visualized the latent embeddings for time point: {timepoint}"
         )
 
+    final_embeds = np.concatenate(final_embeds, axis=0)
+    cell_type_final_labels = np.concatenate(cell_type_final_labels, axis=0)
+    time_labels = np.concatenate(time_labels, axis=0)
+
+    if args.ari_all:
+        # finally, visualize all the embeddings together:
+        metrics["ari"]["all"] = evaluate_ari(final_embeds, cell_type_final_labels)
+
     if not metric_only:
+        final_labels = time_labels if args.vis_pred_times else cell_type_final_labels
         visualize_cluster_embeds(
             final_embeds,
             final_labels,
             data_name,
             split_type,
-            "all",
+            "all" if not args.vis_pred_times else "all_times",
             args=args,
             is_pred=True,
             title=f"Predicted encoder cell type embeddings for all",
+            plot_times=args.vis_pred_times,
         )
-
-    if args.ari_all:
-        # finally, visualize all the embeddings together:
-        final_labels = np.concatenate(final_labels, axis=0)
-        final_embeds = np.concatenate(final_embeds, axis=0)
-        metrics["ari"]["all"] = evaluate_ari(final_embeds, final_labels)
 
     with open(f"./logs/pred_embed_metrics.txt", "a") as f:
         f.write(get_description(args))
@@ -840,6 +875,7 @@ if __name__ == "__main__":
     parser = create_parser()
     parser.add_argument("--vis_true", action="store_true")
     parser.add_argument("--vis_pred", action="store_true")
+    parser.add_argument("--vis_pred_times", action="store_true")
     parser.add_argument("--vis_all_embeds", action="store_true")
     parser.add_argument("--metric_only", action="store_true")
     parser.add_argument("--pretrain_only", action="store_true")
