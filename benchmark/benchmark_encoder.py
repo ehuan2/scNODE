@@ -267,30 +267,33 @@ def visualize_timepoint_embeds(ann_data, times_sorted, data_name, split_type, ar
             f"True data shape: {true_data.shape}, true cell cluster shape: {true_cell_clusters.shape}"
         )
 
-        visualize_cluster_embeds(
-            true_data,
-            true_cell_clusters,
-            data_name,
-            split_type,
-            t,
-            args=args,
-            is_pred=False,
-            title=(f"True cell type embeddings for timepoint {t:.3g}"),
-        )
+        if not args.vis_pred_times:
+            visualize_cluster_embeds(
+                true_data,
+                true_cell_clusters,
+                data_name,
+                split_type,
+                t,
+                args=args,
+                is_pred=False,
+                title=(f"True cell type embeddings for timepoint {t:.3g}"),
+            )
         print(f"Finish visualization for time point {t}")
 
     # visualize all of them together
     true_data = ann_data.X.toarray()
     true_cell_clusters = ann_data.obs["major_clust"].to_numpy()
+    age_cell_clusters = ann_data.obs["numerical_age"].to_numpy()
     visualize_cluster_embeds(
         true_data,
-        true_cell_clusters,
+        true_cell_clusters if not args.vis_pred_times else age_cell_clusters,
         data_name,
         split_type,
-        "all",
+        "all" if not args.vis_pred_times else "all_times",
         args=args,
         is_pred=False,
         title=(f"True cell type embeddings for all"),
+        plot_times=args.vis_pred_times,
     )
     print(f"Finish visualization for all")
 
@@ -534,6 +537,7 @@ def visualize_all_embeds(ann_data, latent_ode_model, metric_only, args):
     """
     data = ann_data.X.toarray()
     labels = ann_data.obs["major_clust"].to_numpy()
+    time_labels = ann_data.obs["numerical_age"].to_numpy()
     embeddings = get_embedding(data, latent_ode_model)
 
     metrics = {}
@@ -544,14 +548,15 @@ def visualize_all_embeds(ann_data, latent_ode_model, metric_only, args):
     if not metric_only:
         visualize_cluster_embeds(
             embeddings,
-            labels,
+            labels if not args.vis_pred_times else time_labels,
             data_name,
             split_type,
-            "all",
+            "all" if not args.vis_pred_times else "all_times",
             args=args,
             is_pred=False,
             is_embedding=True,
             title=f"Encoder cell type embeddings for all",
+            plot_times=args.vis_pred_times,
         )
 
     metrics["ari"]["all"] = evaluate_ari(embeddings, labels)
