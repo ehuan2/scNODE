@@ -59,7 +59,7 @@ def ot_example(a, b, name, use_euclidean=False, uniform=False):
 
     png_name = "euclidean" if use_euclidean else ("uniform" if uniform else "W2")
     os.makedirs(f"./ot_figs/{name}/plan", exist_ok=True)
-    with open(f"./ot_figs/{name}/results.txt", "a") as f:
+    with open(f"./ot_figs/{name}/results.txt", "w") as f:
         f.write(f"Geomloss Loss ({png_name}): {ot_solver(a, b)}\n")
         f.write(f"OT Loss ({png_name}): {ot_result.value}\n")
 
@@ -134,12 +134,53 @@ def plot_transport_same(
     plt.savefig(f"./ot_figs/{name}/vis/{png_name}.png")
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--euclidean", action="store_true")
-    parser.add_argument("--uniform", action="store_true")
-    args = parser.parse_args()
+def get_transport_plan(a, b, reg=0.05, scaling=0.99):
+    """Uses geomloss to get the potentials and then return the transport plan."""
+    ot_solver = SamplesLoss(
+        "sinkhorn",
+        p=2,
+        blur=reg,
+        debias=False,
+        backend="tensorized",
+        scaling=scaling,
+        potentials=True,
+    )
+    ot_solver_loss_only = SamplesLoss(
+        "sinkhorn",
+        p=2,
+        blur=reg,
+        debias=False,
+        backend="tensorized",
+        scaling=scaling,
+        potentials=False,
+    )
 
+    F, G = ot_solver(a, b)
+    F = F[0]
+    G = G[0]
+
+    alpha = torch.tensor(1.0 / len(a))
+    beta = torch.tensor(1.0 / len(b))
+    total_cost = torch.sum(F) * alpha + torch.sum(G) * beta
+
+    print(F, G)
+    print(f"Total OT cost, calculated from potentials: {total_cost}")
+    print(f"Total Geomloss: {ot_solver_loss_only(a, b)}")
+
+    # Compute transport plan if desired:
+    C = torch.cdist(a, b, p=2) ** 2 / 2
+
+    print(f"Cost matrix: {C}")
+
+    Pi = torch.zeros((len(a), len(b)))
+    for i in range(len(a)):
+        for j in range(len(b)):
+            Pi[i, j] = torch.exp((F[i] + G[j] - C[i, j]) / (reg**2)) * alpha * beta
+
+    return Pi
+
+
+def simple_example():
     # so first off do a balanced cell type
     balanced_a = torch.FloatTensor(
         [
@@ -279,3 +320,103 @@ if __name__ == "__main__":
         use_euclidean=args.euclidean,
         uniform=args.uniform,
     )
+
+
+def test_transport():
+    # so first off do a balanced cell type
+    balanced_a = torch.FloatTensor(
+        [
+            # 3rd quadrant, 4 points
+            [-5, -5],
+            [-5, -7],
+            [-7, -5],
+            [-7, -7],
+            # 1st quadrant, 4 points
+            [5, 5],
+            [5, 7],
+            [7, 5],
+            [7, 7],
+        ]
+    )
+
+    balanced_b = torch.FloatTensor(
+        [
+            # 3rd quadrant, 4 points, move the square to a diamond
+            [-6, -5],
+            [-6, -7],
+            [-5, -6],
+            [-7, -6],
+            # 1st quadrant, 4 points, move the square to a diamond
+            [6, 5],
+            [6, 7],
+            [5, 6],
+            [7, 6],
+        ]
+    )
+
+    # next, do a unequal version of this
+    unequal_a = torch.FloatTensor(
+        [
+            # 3rd quadrant, 2 points
+            [-5, -6],
+            [-7, -6],
+            # 1st quadrant, 6 points
+            [5, 5],
+            [4, 6],
+            [5, 7],
+            [7, 5],
+            [8, 6],
+            [7, 7],
+        ]
+    )
+    unequal_b = torch.FloatTensor(
+        [
+            # 3rd quadrant, 6 points
+            [-7, -5],
+            [-8, -6],
+            [-7, -7],
+            [-5, -5],
+            [-4, -6],
+            [-5, -7],
+            # 1st quadrant, 2 points
+            [5, 6],
+            [7, 6],
+        ]
+    )
+
+    scaling = 0.5
+
+    def plot_transport(a, b, name):
+        a_labels = [f"{a[i].numpy()}" for i in range(len(a))]
+        b_labels = [f"{b[j].numpy()}" for j in range(len(b))]
+        plan = get_transport_plan(a, b, reg=0.05, scaling=scaling).numpy()
+        print(f"Plan: {plan}")
+        df = pd.DataFrame(plan, index=a_labels, columns=b_labels)
+
+        plt.figure(figsize=(8, 6))
+        sns.heatmap(df, annot=True, fmt=".3f", cmap="YlGnBu")
+        plt.title(f"Transport Plan (ε={0.05})")
+        plt.xlabel("Target points (b)")
+        plt.ylabel("Source points (a)")
+        os.makedirs(f"./ot_figs/{name}/geom_loss_plan", exist_ok=True)
+        plt.savefig(f"./ot_figs/{name}/geom_loss_plan/plan.png")
+
+    plot_transport(balanced_a, balanced_b, "balanced")
+    plot_transport(unequal_a, unequal_b, "unequal")
+
+    plot_transport_same(
+        unequal_a.numpy(),
+        unequal_b.numpy(),
+        P=get_transport_plan(unequal_a, unequal_b, reg=0.05, scaling=scaling).numpy(),
+        reg=0.05,
+        name="unequal/geom_loss_plan",
+    )
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--euclidean", action="store_true")
+    parser.add_argument("--uniform", action="store_true")
+    args = parser.parse_args()
+
+    test_transport()
