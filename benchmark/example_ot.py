@@ -134,7 +134,7 @@ def plot_transport_same(
     plt.savefig(f"./ot_figs/{name}/vis/{png_name}.png")
 
 
-def get_transport_plan(a, b, reg=0.05, scaling=0.99):
+def get_transport_plan(a, b, reg=0.05, scaling=0.99, debias=False, reach=None):
     """Uses geomloss to get the potentials and then return the transport plan."""
     ot_solver = SamplesLoss(
         "sinkhorn",
@@ -144,6 +144,7 @@ def get_transport_plan(a, b, reg=0.05, scaling=0.99):
         backend="tensorized",
         scaling=scaling,
         potentials=True,
+        reach=reach,
     )
     ot_solver_loss_only = SamplesLoss(
         "sinkhorn",
@@ -153,6 +154,17 @@ def get_transport_plan(a, b, reg=0.05, scaling=0.99):
         backend="tensorized",
         scaling=scaling,
         potentials=False,
+        reach=reach,
+    )
+    ot_solver_debiased = SamplesLoss(
+        "sinkhorn",
+        p=2,
+        blur=reg,
+        debias=True,
+        backend="tensorized",
+        scaling=scaling,
+        potentials=True,
+        reach=reach,
     )
 
     F, G = ot_solver(a, b)
@@ -163,9 +175,19 @@ def get_transport_plan(a, b, reg=0.05, scaling=0.99):
     beta = torch.tensor(1.0 / len(b))
     total_cost = torch.sum(F) * alpha + torch.sum(G) * beta
 
+    F_unbias, G_unbias = ot_solver_debiased(a, b)
+    F_unbias = F_unbias[0]
+    G_unbias = G_unbias[0]
+    unbiased_total_cost = torch.sum(F_unbias) * alpha + torch.sum(G_unbias) * beta
+
     print(F, G)
     print(f"Total OT cost, calculated from potentials: {total_cost}")
     print(f"Total Geomloss: {ot_solver_loss_only(a, b)}")
+    print(f"Total OT unbiased: {unbiased_total_cost}")
+
+    if debias:
+        F = F_unbias
+        G = G_unbias
 
     # Compute transport plan if desired:
     C = torch.cdist(a, b, p=2) ** 2 / 2
@@ -322,7 +344,7 @@ def simple_example():
     )
 
 
-def test_transport():
+def test_transport(args):
     # so first off do a balanced cell type
     balanced_a = torch.FloatTensor(
         [
@@ -384,39 +406,54 @@ def test_transport():
         ]
     )
 
-    scaling = 0.5
+    scaling = args.scaling
+    reg = args.reg
+    debias = args.debias
+    reach = args.reach
 
     def plot_transport(a, b, name):
         a_labels = [f"{a[i].numpy()}" for i in range(len(a))]
         b_labels = [f"{b[j].numpy()}" for j in range(len(b))]
-        plan = get_transport_plan(a, b, reg=0.05, scaling=scaling).numpy()
+        plan = get_transport_plan(
+            a, b, reg=reg, scaling=scaling, debias=debias, reach=reach
+        ).numpy()
         print(f"Plan: {plan}")
         df = pd.DataFrame(plan, index=a_labels, columns=b_labels)
 
         plt.figure(figsize=(8, 6))
         sns.heatmap(df, annot=True, fmt=".3f", cmap="YlGnBu")
-        plt.title(f"Transport Plan (ε={0.05})")
+        plt.title(f"Transport Plan (ε={reg})")
         plt.xlabel("Target points (b)")
         plt.ylabel("Source points (a)")
-        os.makedirs(f"./ot_figs/{name}/geom_loss_plan", exist_ok=True)
-        plt.savefig(f"./ot_figs/{name}/geom_loss_plan/plan.png")
+        dir = f"{name}/geom_loss_plan/debias_{debias}/scaling_{scaling}/reg_{reg}/reach_{reach}"
+        os.makedirs(f"./ot_figs/{dir}", exist_ok=True)
+        plt.savefig(f"./ot_figs/{dir}/plan.png")
+        plot_transport_same(
+            a.numpy(),
+            b.numpy(),
+            P=plan,
+            reg=reg,
+            name=dir,
+        )
 
     plot_transport(balanced_a, balanced_b, "balanced")
     plot_transport(unequal_a, unequal_b, "unequal")
-
-    plot_transport_same(
-        unequal_a.numpy(),
-        unequal_b.numpy(),
-        P=get_transport_plan(unequal_a, unequal_b, reg=0.05, scaling=scaling).numpy(),
-        reg=0.05,
-        name="unequal/geom_loss_plan",
-    )
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--euclidean", action="store_true")
     parser.add_argument("--uniform", action="store_true")
+    parser.add_argument("--debias", action="store_true")
+    parser.add_argument(
+        "--reg", type=float, default=0.05, help="Weight of OT regularization"
+    )
+    parser.add_argument(
+        "--scaling", type=float, default=0.5, help="Weight of OT regularization"
+    )
+    parser.add_argument(
+        "--reach", type=float, default=None, help="Weight of OT regularization"
+    )
     args = parser.parse_args()
 
-    test_transport()
+    test_transport(args)
