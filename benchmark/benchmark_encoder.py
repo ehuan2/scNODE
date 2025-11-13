@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from optim.evaluation import globalEvaluation
+from optim.evaluation import globalEvaluation, globalEvaluationUnbalanced
 from benchmark.BenchmarkUtils import (
     loadSCData,
     tunedOurPars,
@@ -75,6 +75,8 @@ Beta: {args.beta}, LR: {args.lr}, Finetuning LR: {args.finetune_lr}, Vel Reg: {a
 Grad Norm: {args.grad_norm} Gamma: {args.gamma}
 Batch size: {args.batch_size} OT Loss BS: {args.ot_loss_batch_size}
 Epochs: {args.epochs}
+Unbalanced OT: {args.unbalanced_ot}, Scaling: {args.unbalanced_ot_scaling},
+Blur: {args.unbalanced_ot_blur}, Reach: {args.unbalanced_ot_reach}
 """
 
 
@@ -450,6 +452,18 @@ def get_embed_metric_dir():
     return fig_dir
 
 
+def add_unbalanced_ot_to_dir(args, base_dir):
+    """
+    Given the base directory, add unbalanced OT parameters to it
+    """
+    if args.unbalanced_ot:
+        base_dir += (
+            f"/unbalanced_ot/scaling_{args.unbalanced_ot_scaling}_"
+            f"blur_{args.unbalanced_ot_blur}_reach_{args.unbalanced_ot_reach}"
+        )
+    return base_dir
+
+
 def plot_tp_starts(all_metrics):
     """
     Given the ARI metrics per time point start, do:
@@ -654,8 +668,18 @@ def measure_ot_reg(latent_ode_model, ann_data, args):
         # calculate the distance from the predicted to the actual ones
         # now calculate the VAE of the traj data
         embeddings = get_embedding(traj_data[t_idx], latent_ode_model)
-
-        pred_global_metric = globalEvaluation(latent_preds[:, t_idx, :], embeddings)
+        print(f"Computing unbalanced OT for time {t}, regularization loss")
+        pred_global_metric = (
+            globalEvaluation(latent_preds[:, t_idx, :], embeddings)
+            if not args.unbalanced_ot
+            else globalEvaluationUnbalanced(
+                latent_preds[:, t_idx, :],
+                embeddings,
+                scaling=args.unbalanced_ot_scaling,
+                blur=args.unbalanced_ot_blur,
+                reach=args.unbalanced_ot_reach,
+            )
+        )
 
         metrics[t] = pred_global_metric
 
@@ -674,6 +698,8 @@ def measure_ot_reg(latent_ode_model, ann_data, args):
     plt.grid(True)
 
     fig_dir = get_embed_metric_dir()
+    fig_dir = add_unbalanced_ot_to_dir(args, fig_dir)
+    os.makedirs(fig_dir, exist_ok=True)
     plt.savefig(f"{fig_dir}/ot_reg.png")
     plt.close()
 
@@ -719,6 +745,19 @@ def measure_ot_pred(latent_ode_model, ann_data, args):
 
     metrics = {}
 
+    def global_eval_wrapper(preds, embeds):
+        return (
+            globalEvaluation(preds, embeds)
+            if not args.unbalanced_ot
+            else globalEvaluationUnbalanced(
+                preds,
+                embeds,
+                scaling=args.unbalanced_ot_scaling,
+                blur=args.unbalanced_ot_blur,
+                reach=args.unbalanced_ot_reach,
+            )
+        )
+
     for t_idx in range(len(times_sorted) - 1):
         t = times_sorted[t_idx]
         # calculate the distance from the predicted to the actual ones
@@ -726,9 +765,12 @@ def measure_ot_pred(latent_ode_model, ann_data, args):
         embeddings = get_embedding(traj_data[t_idx], latent_ode_model)
         next_embeddings = get_embedding(traj_data[t_idx + 1], latent_ode_model)
 
+        print(f"Computing prediction unbalanced OT for time {t}")
         metrics[t] = {
-            "cur_and_pred_ot": globalEvaluation(latent_preds[t_idx][:, :], embeddings),
-            "pred_and_next_ot": globalEvaluation(
+            "cur_and_pred_ot": global_eval_wrapper(
+                latent_preds[t_idx][:, :], embeddings
+            ),
+            "pred_and_next_ot": global_eval_wrapper(
                 latent_preds[t_idx][:, :], next_embeddings
             ),
             "next_time": times_sorted[t_idx + 1],
@@ -773,6 +815,8 @@ def measure_ot_pred(latent_ode_model, ann_data, args):
     )
 
     fig_dir = get_embed_metric_dir()
+    fig_dir = add_unbalanced_ot_to_dir(args, fig_dir)
+    os.makedirs(fig_dir, exist_ok=True)
     fig.savefig(f"{fig_dir}/ot_pred_use_time_zero_embed_{args.use_time_zero_embed}.png")
     plt.close(fig)
 
@@ -901,6 +945,12 @@ if __name__ == "__main__":
         help="Optional: plot only this single cell type (e.g., --cell Astro)",
     )
     parser.add_argument("--measure_cell_proportion", action="store_true")
+
+    # unbalanced OT measurements, such as scaling, blur, reach which are all floats
+    parser.add_argument("--unbalanced_ot", action="store_true")
+    parser.add_argument("--unbalanced_ot_scaling", type=float, default=0.5)
+    parser.add_argument("--unbalanced_ot_blur", type=float, default=0.05)
+    parser.add_argument("--unbalanced_ot_reach", type=float, default=2.0)
 
     args = parser.parse_args()
 
