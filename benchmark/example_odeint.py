@@ -11,3 +11,5 @@ def f(t, y):
 print(odeint(f, torch.tensor(1.0), torch.tensor([0.0, 1.0, 2.0])))
 # then this should approximate 2 * e^t, should return 2 * e^0, 2 * e^2, 2 * e^4, etc.
 print(odeint(f, torch.tensor(2.0), torch.tensor([1.0, 3.0, 5.0])))
+# this should just be C
+print(odeint(f, torch.tensor(800), torch.tensor([893483924.0])))

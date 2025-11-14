@@ -736,7 +736,8 @@ def measure_ot_pred(latent_ode_model, ann_data, args):
     else:
         latent_preds = []
         for t in range(len(times_sorted) - 1):
-            curr_tps = torch.FloatTensor([tps[t + 1]])
+            # should always be having the first time point for reference
+            curr_tps = torch.FloatTensor([tps[t], tps[t + 1]])
             # only predict the next time point
             latent_pred = predict_latent_embeds(
                 latent_ode_model, traj_data[t], curr_tps, n_sim_cells
