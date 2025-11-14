@@ -1,5 +1,6 @@
 import torch
 from geomloss import SamplesLoss
+from pykeops.torch import generic_sum
 import os
 import ot
 import pandas as pd
@@ -198,6 +199,39 @@ def get_transport_plan(a, b, reg=0.05, scaling=0.99, debias=False, reach=None):
     for i in range(len(a)):
         for j in range(len(b)):
             Pi[i, j] = torch.exp((F[i] + G[j] - C[i, j]) / (reg**2)) * alpha * beta
+
+    # let's add labels for the data as [1, 0] or [0, 1] depending on the data in b
+    l_j = torch.zeros((len(b), 2))
+    for j in range(len(b)):
+        if b[j][0] > 0 and b[j][1] > 0:
+            l_j[j][0] = 1
+        else:
+            l_j[j][1] = 1
+    print(f"Dest: {b}, Labels: {l_j}")
+
+    # now let's also calculate the transferred labels!
+    # Define our KeOps CUDA kernel:
+    transfer = generic_sum(
+        "Exp( (F_i + G_j - IntInv(2)*SqDist(X_i,Y_j)) / E ) * L_j",  # See the formula above
+        "Lab = Vi(2)",  # Output:  one vector of size 3 per line
+        "E   = Pm(1)",  # 1st arg: a scalar parameter, the temperature
+        "X_i = Vi(2)",  # 2nd arg: one 2d-point per line
+        "Y_j = Vj(2)",  # 3rd arg: one 2d-point per column
+        "F_i = Vi(1)",  # 4th arg: one scalar value per line
+        "G_j = Vj(1)",  # 5th arg: one scalar value per column
+        "L_j = Vj(2)",
+    )  # 6th arg: one vector of size 3 per column
+
+    # And apply it on the data (KeOps is pretty picky on the input shapes...):
+    labels_i = transfer(
+        torch.Tensor([args.reg**2]).type(torch.FloatTensor),
+        a,
+        b,
+        F.view(-1, 1),
+        G.view(-1, 1),
+        l_j,
+    ) / len(b)
+    print(f"Source: {a}, Inferred Labels: {labels_i}")
 
     return Pi
 
