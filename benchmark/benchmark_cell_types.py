@@ -19,6 +19,7 @@ from optim.running import constructscNODEModel, get_checkpoint_train_path, add_t
 import scanpy as sc
 from sklearn.metrics import adjusted_rand_score
 from tqdm import tqdm
+from sklearn.neighbors import NearestNeighbors
 
 
 def load_model(n_genes, split_type, args):
@@ -215,7 +216,7 @@ def cell_types_to_one_hot(cell_types):
     return one_hot, type_to_index, unique_clusters
 
 
-def infer_cell_types_knn(true_embeds, pred_embeds, true_cell_types, args, k=10):
+def infer_cell_types_knn(true_embeds, pred_embeds, true_cell_types, args):
     """
     Based on the true embeddings, its true cell types and the predicted embeddings
     infer the cell types for the predicted embeddings using k-NN
@@ -224,6 +225,8 @@ def infer_cell_types_knn(true_embeds, pred_embeds, true_cell_types, args, k=10):
     """
     # TODO: finish this section here!
     inferred_labels_by_time = []
+
+    k = args.knn_k
 
     for t, true_embed in enumerate(true_embeds):
         tp_cell_types = true_cell_types[t]
@@ -234,10 +237,15 @@ def infer_cell_types_knn(true_embeds, pred_embeds, true_cell_types, args, k=10):
             tp_cell_types
         )
 
-        infer_label = np.zeros(pred_embed.shape[0], len(unique_clusters))
+        nn = NearestNeighbors(n_neighbors=k, algorithm="auto")
+        nn.fit(true_embed)
+        _, indices = nn.kneighbors(pred_embed)
+
+        # now we take the indices and get the labels by averaging over all the indices
+        infer_label = np.zeros((pred_embed.shape[0], one_hot_true_cell_types.shape[1]))
         for i in range(pred_embed.shape[0]):
-            # for each prediction, find its kNN in the true
-            pass
+            neighbor_labels = one_hot_true_cell_types[indices[i], :]
+            infer_label[i, :] = np.mean(neighbor_labels, axis=0)
 
         inferred_labels_by_time.append(
             {"labels": infer_label, "mapping": type_to_index, "types": unique_clusters}
@@ -255,7 +263,7 @@ def get_labels(true_embed, pred_embed, args, one_hot_labels):
         "sinkhorn",
         p=2,
         blur=args.unbalanced_ot_blur,
-        debias=False,
+        debias=True,
         backend="tensorized",
         scaling=args.unbalanced_ot_scaling,
         potentials=True,
@@ -538,7 +546,6 @@ def measure_metric(inferred_cell_types, true_cell_types, times_sorted, args):
 
 if __name__ == "__main__":
     parser = create_parser()
-    parser.add_argument("--use_knn", action="store_true")
     parser.add_argument("--use_sequential_pred", action="store_true")
 
     parser.add_argument("--measure_metric", action="store_true")
@@ -548,6 +555,9 @@ if __name__ == "__main__":
     parser.add_argument("--unbalanced_ot_scaling", type=float, default=0.5)
     parser.add_argument("--unbalanced_ot_blur", type=float, default=0.05)
     parser.add_argument("--unbalanced_ot_reach", type=float, default=None)
+
+    parser.add_argument("--use_knn", action="store_true")
+    parser.add_argument("--knn_k", type=int, default=10)
 
     args = parser.parse_args()
 
