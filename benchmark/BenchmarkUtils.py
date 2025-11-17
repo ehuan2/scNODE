@@ -657,4 +657,7 @@ def create_parser():
     # then we train all cell types
     parser.add_argument("--cell_type_to_train", type=str, default="")
     parser.add_argument("--cell_type_to_vis", type=str, default="")
+
+    parser.add_argument("--pretrain_only", action="store_true")
+
     return parser

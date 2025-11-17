@@ -928,7 +928,6 @@ if __name__ == "__main__":
     parser.add_argument("--vis_pred_times", action="store_true")
     parser.add_argument("--vis_all_embeds", action="store_true")
     parser.add_argument("--metric_only", action="store_true")
-    parser.add_argument("--pretrain_only", action="store_true")
     parser.add_argument("--measure_perfect", action="store_true")
     parser.add_argument("--use_all_embed_umap", action="store_true")
     parser.add_argument("--measure_ot_reg", action="store_true")
