@@ -144,7 +144,9 @@ def tps_to_continuous(tps, times_sorted):
     return torch.FloatTensor([times_sorted[int(tp)] for tp in tps])
 
 
-def get_cell_pred_embeds_sequential(latent_ode_model, traj_data, tps, n_sim_cells=2000):
+def get_cell_pred_embeds_sequential(
+    latent_ode_model, traj_data, tps, args, n_sim_cells=2000
+):
     """
     Given the latent ODE model, the trajectory data (list of tensors),
     and the time points (tensor), get the predicted cell embeddings
@@ -152,46 +154,21 @@ def get_cell_pred_embeds_sequential(latent_ode_model, traj_data, tps, n_sim_cell
     """
     all_cell_preds = []
 
-    # TODO: test if the cell label works on its own just as
+    # as a good test, include the very first time point as well
+    all_cell_preds.append(
+        predict_latent_embeds(
+            latent_ode_model, traj_data[0], tps[0:1], n_sim_cells=n_sim_cells
+        )[:, 0, :]
+    )
 
-    test_cell_label_transfer = True
-
-    if test_cell_label_transfer:
-        for i in range(len(traj_data)):
-            first_tp = traj_data[i]
-            next_tps = tps[i : i + 1]
-            # we get the cell embeddings at the current time step and the next time step
-            cell_preds = predict_latent_embeds(
-                latent_ode_model,
-                first_tp,
-                next_tps,
-                n_sim_cells=n_sim_cells
-                # latent_ode_model, first_tp, next_tps, first_tp.shape[0]
-            )
-            all_cell_preds.append(
-                cell_preds[:, 0, :]
-            )  # only take the current time point
-
-    else:
-        # as a good test, include the very first time point as well
-        all_cell_preds.append(
-            predict_latent_embeds(
-                latent_ode_model, traj_data[0], tps[0:1], n_sim_cells=n_sim_cells
-            )[:, 0, :]
+    for i in range(len(traj_data) - 1):
+        first_tp = traj_data[i]
+        next_tps = tps[i : i + 2]
+        # we get the cell embeddings at the current time step and the next time step
+        cell_preds = predict_latent_embeds(
+            latent_ode_model, first_tp, next_tps, n_sim_cells=n_sim_cells
         )
-
-        for i in range(len(traj_data) - 1):
-            first_tp = traj_data[i]
-            next_tps = tps[i : i + 2]
-            # we get the cell embeddings at the current time step and the next time step
-            cell_preds = predict_latent_embeds(
-                latent_ode_model,
-                first_tp,
-                next_tps,
-                n_sim_cells=n_sim_cells
-                # latent_ode_model, first_tp, next_tps, first_tp.shape[0]
-            )
-            all_cell_preds.append(cell_preds[:, -1, :])  # only take the next time point
+        all_cell_preds.append(cell_preds[:, -1, :])  # only take the next time point
     return all_cell_preds
 
 
@@ -238,7 +215,7 @@ def cell_types_to_one_hot(cell_types):
     return one_hot, type_to_index, unique_clusters
 
 
-def infer_cell_types_knn(true_embeds, pred_embeds, true_cell_types, k=10):
+def infer_cell_types_knn(true_embeds, pred_embeds, true_cell_types, args, k=10):
     """
     Based on the true embeddings, its true cell types and the predicted embeddings
     infer the cell types for the predicted embeddings using k-NN
@@ -545,10 +522,26 @@ def calculate_ari(pred_embeds, inferred_cell_types, times_sorted):
         print(f"Time {t} ARI score: {ari_score}")
 
 
+def measure_metric(inferred_cell_types, true_cell_types, times_sorted, args):
+    """
+    Given the predicted embeddings, inferred cell types and true cell types,
+    measure how accurate the cell labels are now, as they should be in order
+    """
+    for i, t in enumerate(times_sorted):
+        pred_cell_type = soft_labels_to_cell_types(inferred_cell_types[i])
+        true_cell_type = true_cell_types[i]
+        # now we match up how many of them are equal
+        assert len(pred_cell_type) == len(true_cell_type)
+        accuracy = np.sum(pred_cell_type == true_cell_type) / len(true_cell_type)
+        print(f"Time {t} Inferred Cell Type Accuracy: {accuracy}")
+
+
 if __name__ == "__main__":
     parser = create_parser()
     parser.add_argument("--use_knn", action="store_true")
     parser.add_argument("--use_sequential_pred", action="store_true")
+
+    parser.add_argument("--measure_metric", action="store_true")
 
     # unbalanced OT measurements, such as scaling, blur, reach which are all floats
     parser.add_argument("--unbalanced_ot", action="store_true")
@@ -580,12 +573,18 @@ if __name__ == "__main__":
     print(f"Successfully loaded model")
 
     # now let's get the predicted cell embeddings, the true cell embeddings and its labels
-    if args.use_sequential_pred:
+    if args.measure_metric:
+        pred_embeds, _ = get_cell_embed_by_timepoint(
+            ann_data, times_sorted, latent_ode_model
+        )
+    elif args.use_sequential_pred:
         print("Using sequential prediction for cell embeddings")
-        pred_embeds = get_cell_pred_embeds_sequential(latent_ode_model, traj_data, tps)
+        pred_embeds = get_cell_pred_embeds_sequential(
+            latent_ode_model, traj_data, tps, args
+        )
     else:
         print("Using joint prediction for cell embeddings")
-        pred_embeds = get_cell_pred_embeds_joint(latent_ode_model, traj_data, tps)
+        pred_embeds = get_cell_pred_embeds_joint(latent_ode_model, traj_data, tps, args)
 
     # ** Note cell prediction embeds are starting from time point 1, not time point 0 **
     true_embeds, true_cell_types = get_cell_embed_by_timepoint(
@@ -598,13 +597,19 @@ if __name__ == "__main__":
         # TODO: this is not done yet
         print("Using k-NN to infer cell types")
         inferred_cell_types = infer_cell_types_knn(
-            true_embeds, pred_embeds, true_cell_types
+            true_embeds, pred_embeds, true_cell_types, args
         )
     else:
         print("Using OT to infer cell types")
         inferred_cell_types = infer_cell_types_ot(
             true_embeds, pred_embeds, true_cell_types, args
         )
+
+    if args.measure_metric:
+        print(
+            f'Measuring {"kNN" if args.use_knn else "OT"} inferred cell types against true cell types'
+        )
+        measure_metric(inferred_cell_types, true_cell_types, times_sorted, args)
 
     plot_umap_embeddings(
         true_embeds,
