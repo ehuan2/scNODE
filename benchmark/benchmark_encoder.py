@@ -1,5 +1,6 @@
 # benchmark_decoder.py.
 # used to benchmark the decoder and encoder
+import ast
 import os
 import pickle
 
@@ -7,7 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from optim.evaluation import globalEvaluation
+from optim.evaluation import globalEvaluation, globalEvaluationUnbalanced
 from benchmark.BenchmarkUtils import (
     loadSCData,
     tunedOurPars,
@@ -74,6 +75,8 @@ Beta: {args.beta}, LR: {args.lr}, Finetuning LR: {args.finetune_lr}, Vel Reg: {a
 Grad Norm: {args.grad_norm} Gamma: {args.gamma}
 Batch size: {args.batch_size} OT Loss BS: {args.ot_loss_batch_size}
 Epochs: {args.epochs}
+Unbalanced OT: {args.unbalanced_ot}, Scaling: {args.unbalanced_ot_scaling},
+Blur: {args.unbalanced_ot_blur}, Reach: {args.unbalanced_ot_reach}
 """
 
 
@@ -124,6 +127,7 @@ def visualize_cluster_embeds(
     args,
     is_embedding=False,
     title=None,
+    plot_times=False,
 ):
     """
     Visualize UMAP embeddings colored by cell major clusters.
@@ -199,30 +203,53 @@ def visualize_cluster_embeds(
     n_clusters = len(unique_clusters)
     cmap = plt.cm.get_cmap("tab20", 20)
     color_list = [cmap(i) for i in range(n_clusters)]
-    num_cols = max(1, len(unique_clusters) // 7)
+    num_cols = max(1, len(unique_clusters) // 10)
 
-    # --- Plot ---
-    fig, ax = plt.subplots(figsize=(7, 6))
-    ax.set_title("UMAP colored by major cluster", fontsize=15)
+    if plot_times:
+        norm = plt.Normalize(vmin=min(unique_clusters), vmax=max(unique_clusters))
+        cmap = plt.cm.get_cmap("viridis")  # continuous colormap
+        colors = cmap(norm(true_cell_clusters))  # get color for each point
 
-    for i, clust in enumerate(unique_clusters):
-        cluster_idx = np.where(true_cell_clusters == clust)[0]
-        ax.scatter(
-            true_umap_traj[cluster_idx, 0],
-            true_umap_traj[cluster_idx, 1],
-            label=str(clust),
-            color=color_list[i],
+        # --- Plot ---
+        fig, ax = plt.subplots(figsize=(7, 6))
+        ax.set_title("UMAP colored by major cluster (continuous)", fontsize=15)
+
+        sc = ax.scatter(
+            true_umap_traj[:, 0],
+            true_umap_traj[:, 1],
+            c=true_cell_clusters,
+            cmap=cmap,
             s=0.05 if true_data.shape[0] > 100_000 else 10,
             alpha=0.7,
         )
 
-    ax.legend(
-        loc="center left",
-        bbox_to_anchor=(1.1, 0.5),
-        markerscale=50 if true_data.shape[0] > 100_000 else 1,
-        ncol=num_cols,
-        title="Major Cluster",
-    )
+        # Add colorbar for continuous values
+        cbar = plt.colorbar(sc, ax=ax)
+        cbar.set_label("Cluster (continuous scale)", rotation=270, labelpad=15)
+
+    else:
+        # --- Plot ---
+        fig, ax = plt.subplots(figsize=(7, 6))
+        ax.set_title("UMAP colored by major cluster", fontsize=15)
+
+        for i, clust in enumerate(unique_clusters):
+            cluster_idx = np.where(true_cell_clusters == clust)[0]
+            ax.scatter(
+                true_umap_traj[cluster_idx, 0],
+                true_umap_traj[cluster_idx, 1],
+                label=str(clust),
+                color=color_list[i],
+                s=0.05 if true_data.shape[0] > 100_000 else 10,
+                alpha=0.7,
+            )
+
+        ax.legend(
+            loc="center left",
+            bbox_to_anchor=(1.1, 0.5),
+            markerscale=50 if true_data.shape[0] > 100_000 else 1,
+            ncol=num_cols,
+            title="Major Cluster",
+        )
 
     if title is not None:
         plt.suptitle(title)
@@ -242,30 +269,33 @@ def visualize_timepoint_embeds(ann_data, times_sorted, data_name, split_type, ar
             f"True data shape: {true_data.shape}, true cell cluster shape: {true_cell_clusters.shape}"
         )
 
-        visualize_cluster_embeds(
-            true_data,
-            true_cell_clusters,
-            data_name,
-            split_type,
-            t,
-            args=args,
-            is_pred=False,
-            title=(f"True cell type embeddings for timepoint {t:.3g}"),
-        )
+        if not args.vis_pred_times:
+            visualize_cluster_embeds(
+                true_data,
+                true_cell_clusters,
+                data_name,
+                split_type,
+                t,
+                args=args,
+                is_pred=False,
+                title=(f"True cell type embeddings for timepoint {t:.3g}"),
+            )
         print(f"Finish visualization for time point {t}")
 
     # visualize all of them together
     true_data = ann_data.X.toarray()
     true_cell_clusters = ann_data.obs["major_clust"].to_numpy()
+    age_cell_clusters = ann_data.obs["numerical_age"].to_numpy()
     visualize_cluster_embeds(
         true_data,
-        true_cell_clusters,
+        true_cell_clusters if not args.vis_pred_times else age_cell_clusters,
         data_name,
         split_type,
-        "all",
+        "all" if not args.vis_pred_times else "all_times",
         args=args,
         is_pred=False,
         title=(f"True cell type embeddings for all"),
+        plot_times=args.vis_pred_times,
     )
     print(f"Finish visualization for all")
 
@@ -334,7 +364,8 @@ def visualize_pred_embeds(ann_data, latent_ode_model, tps, metric_only, args):
 
     # so we concatenate it on the 0th axis, so that way it becomes (cells, genes)
     # however, we also need to create the (cells,) cell_type labels
-    final_labels = []
+    cell_type_final_labels = []
+    time_labels = []
     final_embeds = []
 
     metrics = {}
@@ -352,14 +383,20 @@ def visualize_pred_embeds(ann_data, latent_ode_model, tps, metric_only, args):
         )
 
         # for altogether predictions
-        final_labels.append(cell_type_labels)
+        cell_type_final_labels.append(cell_type_labels)
+        time_labels.append(
+            np.repeat(
+                [times_sorted[t_idx + args.mature_cell_tp_index]], tp_embed.shape[0]
+            )
+        )
+        print(time_labels[-1].shape)
         final_embeds.append(tp_embed)
 
         # now we just have to make sure that the timepoint index is correct
         timepoint = times_sorted[t_idx + args.mature_cell_tp_index]
 
-        # now we visualize this:
-        if not metric_only:
+        # now we visualize this, only if it's not the time visualization:
+        if not metric_only and not args.vis_pred_times:
             visualize_cluster_embeds(
                 tp_embed,
                 cell_type_labels,
@@ -377,23 +414,27 @@ def visualize_pred_embeds(ann_data, latent_ode_model, tps, metric_only, args):
             f"Successfully visualized the latent embeddings for time point: {timepoint}"
         )
 
+    final_embeds = np.concatenate(final_embeds, axis=0)
+    cell_type_final_labels = np.concatenate(cell_type_final_labels, axis=0)
+    time_labels = np.concatenate(time_labels, axis=0)
+
+    if args.ari_all:
+        # finally, visualize all the embeddings together:
+        metrics["ari"]["all"] = evaluate_ari(final_embeds, cell_type_final_labels)
+
     if not metric_only:
+        final_labels = time_labels if args.vis_pred_times else cell_type_final_labels
         visualize_cluster_embeds(
             final_embeds,
             final_labels,
             data_name,
             split_type,
-            "all",
+            "all" if not args.vis_pred_times else "all_times",
             args=args,
             is_pred=True,
             title=f"Predicted encoder cell type embeddings for all",
+            plot_times=args.vis_pred_times,
         )
-
-    if args.ari_all:
-        # finally, visualize all the embeddings together:
-        final_labels = np.concatenate(final_labels, axis=0)
-        final_embeds = np.concatenate(final_embeds, axis=0)
-        metrics["ari"]["all"] = evaluate_ari(final_embeds, final_labels)
 
     with open(f"./logs/pred_embed_metrics.txt", "a") as f:
         f.write(get_description(args))
@@ -409,6 +450,18 @@ def get_embed_metric_dir():
     fig_dir = f"figs/" + shared_path
     os.makedirs(fig_dir, exist_ok=True)
     return fig_dir
+
+
+def add_unbalanced_ot_to_dir(args, base_dir):
+    """
+    Given the base directory, add unbalanced OT parameters to it
+    """
+    if args.unbalanced_ot:
+        base_dir += (
+            f"/unbalanced_ot/scaling_{args.unbalanced_ot_scaling}_"
+            f"blur_{args.unbalanced_ot_blur}_reach_{args.unbalanced_ot_reach}"
+        )
+    return base_dir
 
 
 def plot_tp_starts(all_metrics):
@@ -498,7 +551,8 @@ def visualize_all_embeds(ann_data, latent_ode_model, metric_only, args):
     """
     data = ann_data.X.toarray()
     labels = ann_data.obs["major_clust"].to_numpy()
-    embeddings = get_embedding(data)
+    time_labels = ann_data.obs["numerical_age"].to_numpy()
+    embeddings = get_embedding(data, latent_ode_model)
 
     metrics = {}
     metrics["ari"] = {}
@@ -508,14 +562,15 @@ def visualize_all_embeds(ann_data, latent_ode_model, metric_only, args):
     if not metric_only:
         visualize_cluster_embeds(
             embeddings,
-            labels,
+            labels if not args.vis_pred_times else time_labels,
             data_name,
             split_type,
-            "all",
+            "all" if not args.vis_pred_times else "all_times",
             args=args,
             is_pred=False,
             is_embedding=True,
             title=f"Encoder cell type embeddings for all",
+            plot_times=args.vis_pred_times,
         )
 
     metrics["ari"]["all"] = evaluate_ari(embeddings, labels)
@@ -582,7 +637,7 @@ def measure_perfect(latent_ode_model, ann_data, times_sorted, args):
     )
 
     ax.set_xlabel("Time (index)")
-    ax.set_ylabel("OT value")
+    ax.set_ylabel("ARI value")
     ax.set_title(f"ARI over time")
     ax.grid(True)
     fig_dir = get_embed_metric_dir()
@@ -612,9 +667,19 @@ def measure_ot_reg(latent_ode_model, ann_data, args):
     for t_idx, t in enumerate(times_sorted):
         # calculate the distance from the predicted to the actual ones
         # now calculate the VAE of the traj data
-        embeddings = get_embedding(traj_data[t_idx])
-
-        pred_global_metric = globalEvaluation(latent_preds[:, t_idx, :], embeddings)
+        embeddings = get_embedding(traj_data[t_idx], latent_ode_model)
+        print(f"Computing unbalanced OT for time {t}, regularization loss")
+        pred_global_metric = (
+            globalEvaluation(latent_preds[:, t_idx, :], embeddings)
+            if not args.unbalanced_ot
+            else globalEvaluationUnbalanced(
+                latent_preds[:, t_idx, :],
+                embeddings,
+                scaling=args.unbalanced_ot_scaling,
+                blur=args.unbalanced_ot_blur,
+                reach=args.unbalanced_ot_reach,
+            )
+        )
 
         metrics[t] = pred_global_metric
 
@@ -625,6 +690,7 @@ def measure_ot_reg(latent_ode_model, ann_data, args):
     ots = [metrics[t]["ot"] for t in times_sorted]
     times = range(len(times_sorted))
 
+    plt.figure(figsize=(8, 6))
     plt.plot(times, ots, marker="o")
     plt.xlabel("Time (index)")
     plt.ylabel("OT value")
@@ -632,7 +698,10 @@ def measure_ot_reg(latent_ode_model, ann_data, args):
     plt.grid(True)
 
     fig_dir = get_embed_metric_dir()
+    fig_dir = add_unbalanced_ot_to_dir(args, fig_dir)
+    os.makedirs(fig_dir, exist_ok=True)
     plt.savefig(f"{fig_dir}/ot_reg.png")
+    plt.close()
 
     return metrics
 
@@ -667,7 +736,8 @@ def measure_ot_pred(latent_ode_model, ann_data, args):
     else:
         latent_preds = []
         for t in range(len(times_sorted) - 1):
-            curr_tps = torch.FloatTensor([tps[t + 1]])
+            # should always be having the first time point for reference
+            curr_tps = torch.FloatTensor([tps[t], tps[t + 1]])
             # only predict the next time point
             latent_pred = predict_latent_embeds(
                 latent_ode_model, traj_data[t], curr_tps, n_sim_cells
@@ -676,16 +746,32 @@ def measure_ot_pred(latent_ode_model, ann_data, args):
 
     metrics = {}
 
+    def global_eval_wrapper(preds, embeds):
+        return (
+            globalEvaluation(preds, embeds)
+            if not args.unbalanced_ot
+            else globalEvaluationUnbalanced(
+                preds,
+                embeds,
+                scaling=args.unbalanced_ot_scaling,
+                blur=args.unbalanced_ot_blur,
+                reach=args.unbalanced_ot_reach,
+            )
+        )
+
     for t_idx in range(len(times_sorted) - 1):
         t = times_sorted[t_idx]
         # calculate the distance from the predicted to the actual ones
         # now calculate the VAE of the traj data
-        embeddings = get_embedding(traj_data[t_idx])
-        next_embeddings = get_embedding(traj_data[t_idx + 1])
+        embeddings = get_embedding(traj_data[t_idx], latent_ode_model)
+        next_embeddings = get_embedding(traj_data[t_idx + 1], latent_ode_model)
 
+        print(f"Computing prediction unbalanced OT for time {t}")
         metrics[t] = {
-            "cur_and_pred_ot": globalEvaluation(latent_preds[t_idx][:, :], embeddings),
-            "pred_and_next_ot": globalEvaluation(
+            "cur_and_pred_ot": global_eval_wrapper(
+                latent_preds[t_idx][:, :], embeddings
+            ),
+            "pred_and_next_ot": global_eval_wrapper(
                 latent_preds[t_idx][:, :], next_embeddings
             ),
             "next_time": times_sorted[t_idx + 1],
@@ -730,17 +816,118 @@ def measure_ot_pred(latent_ode_model, ann_data, args):
     )
 
     fig_dir = get_embed_metric_dir()
+    fig_dir = add_unbalanced_ot_to_dir(args, fig_dir)
+    os.makedirs(fig_dir, exist_ok=True)
     fig.savefig(f"{fig_dir}/ot_pred_use_time_zero_embed_{args.use_time_zero_embed}.png")
     plt.close(fig)
+
+
+def measure_cell_counts(ann_data, times_sorted, args):
+    """
+    Measure the number of cells there are per timepoint, and calculate the dictionary
+    such that dict[t] = dictionary of cell types to counts
+    """
+
+    cell_count_path = "./logs/cell_type_counts.txt"
+    if not os.path.exists(cell_count_path):
+        cell_types = ann_data.obs["major_clust"].unique().tolist()
+        data = {}
+        for t in times_sorted:
+            timepoint_data = ann_data[ann_data.obs["numerical_age"] == t]
+            data[t] = {}
+
+            total = 0
+
+            for cell_type in cell_types:
+                print(f"Working on timepoint {t}, cell type: {cell_type}")
+                data[t][cell_type] = (
+                    (timepoint_data.obs["major_clust"] == cell_type).sum().item()
+                )
+                total += data[t][cell_type]
+
+            data[t]["total"] = total
+
+        pprint.pprint(data)
+
+        with open(cell_count_path, "w") as f:
+            pprint.pprint(data, stream=f, sort_dicts=True)
+
+    with open(cell_count_path, "r") as f:
+        text = f.read().strip()
+
+    data = ast.literal_eval(text)
+    data = {float(k): v for k, v in data.items()}  # ensure float timepoints
+
+    time_points = sorted(data.keys())
+    cell_types = [k for k in data[time_points[0]].keys() if k != "total"]
+    raw_cell_counts = {
+        cell: [data[t][cell] for t in time_points] for cell in cell_types
+    }
+
+    cell_ratios = {
+        cell: [data[t][cell] / data[t]["total"] for t in time_points]
+        for cell in cell_types
+    }
+    cell_counts = raw_cell_counts if not args.measure_cell_proportion else cell_ratios
+
+    if args.measure_cell_count_time_idxs:
+        time_points = range(len(data.keys()))
+
+    # --- Step 3: Plot either one or all ---
+    counts_or_ratio = "Counts" if not args.measure_cell_proportion else "Ratio"
+
+    if args.measure_cell_specific:
+        cell = args.measure_cell_specific
+        if cell not in cell_counts:
+            raise ValueError(
+                f"Cell type '{cell}' not found. Available: {', '.join(cell_types)}"
+            )
+
+        plt.figure(figsize=(6, 4))
+        plt.plot(time_points, cell_counts[cell], marker="o", color="tab:blue")
+        plt.title(f"{cell} {counts_or_ratio} Over Time")
+        plt.xlabel("Time")
+        plt.ylabel("Cell count")
+        plt.grid(True, linestyle="--", alpha=0.6)
+        plt.tight_layout()
+        if not args.measure_cell_count_time_idxs:
+            plt.savefig(f"./figs/{cell}_{counts_or_ratio}.png")
+        else:
+            plt.savefig(f"./figs/{cell}_{counts_or_ratio}_time_idxs.png")
+
+    else:
+        rows, cols = 4, 5
+        fig, axes = plt.subplots(rows, cols, figsize=(15, 10), sharex=True)
+        axes = axes.flatten()
+
+        for i, cell in enumerate(cell_types):
+            ax = axes[i]
+            ax.plot(time_points, cell_counts[cell], marker="o")
+            ax.set_title(cell, fontsize=9)
+            ax.tick_params(axis="both", which="major", labelsize=8)
+            if i // cols == rows - 1:
+                ax.set_xlabel("Time")
+            if i % cols == 0:
+                ax.set_ylabel(f"{counts_or_ratio}")
+
+        for j in range(len(cell_types), len(axes)):
+            axes[j].axis("off")
+
+        fig.suptitle(f"Cell Type {counts_or_ratio} Over Time", fontsize=14)
+        plt.tight_layout(rect=[0, 0, 1, 0.97])
+        if not args.measure_cell_count_time_idxs:
+            plt.savefig(f"./figs/cell_type_plot_{counts_or_ratio}.png")
+        else:
+            plt.savefig(f"./figs/cell_type_plot_time_idxs_{counts_or_ratio}.png")
 
 
 if __name__ == "__main__":
     parser = create_parser()
     parser.add_argument("--vis_true", action="store_true")
     parser.add_argument("--vis_pred", action="store_true")
+    parser.add_argument("--vis_pred_times", action="store_true")
     parser.add_argument("--vis_all_embeds", action="store_true")
     parser.add_argument("--metric_only", action="store_true")
-    parser.add_argument("--pretrain_only", action="store_true")
     parser.add_argument("--measure_perfect", action="store_true")
     parser.add_argument("--use_all_embed_umap", action="store_true")
     parser.add_argument("--measure_ot_reg", action="store_true")
@@ -749,6 +936,21 @@ if __name__ == "__main__":
     parser.add_argument("--mature_cell_tp_index", type=int, default=0)
     parser.add_argument("--measure_all_tp_starts", action="store_true")
     parser.add_argument("--ari_all", action="store_true")
+    parser.add_argument("--measure_cell_counts", action="store_true")
+    parser.add_argument("--measure_cell_count_time_idxs", action="store_true")
+    parser.add_argument(
+        "--measure_cell_specific",
+        type=str,
+        default=None,
+        help="Optional: plot only this single cell type (e.g., --cell Astro)",
+    )
+    parser.add_argument("--measure_cell_proportion", action="store_true")
+
+    # unbalanced OT measurements, such as scaling, blur, reach which are all floats
+    parser.add_argument("--unbalanced_ot", action="store_true")
+    parser.add_argument("--unbalanced_ot_scaling", type=float, default=0.5)
+    parser.add_argument("--unbalanced_ot_blur", type=float, default=0.05)
+    parser.add_argument("--unbalanced_ot_reach", type=float, default=2.0)
 
     args = parser.parse_args()
 
@@ -818,7 +1020,6 @@ if __name__ == "__main__":
         )
 
     # 4) Measures the perfect ARI
-    # TODO: log this out to a logfile AND plot this as a line graph!
     if args.measure_perfect:
         measure_perfect(latent_ode_model, ann_data, times_sorted, args)
 
@@ -831,3 +1032,7 @@ if __name__ == "__main__":
     # the OT between predicted Z^{t + 1} and actual Z^{t + 1}
     if args.measure_ot_pred:
         measure_ot_pred(latent_ode_model, ann_data, args)
+
+    # 8) Measures the raw cell type counts, and plots them as well
+    if args.measure_cell_counts:
+        measure_cell_counts(ann_data, times_sorted, args)
