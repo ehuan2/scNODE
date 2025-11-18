@@ -210,9 +210,10 @@ def cell_types_to_one_hot(cell_types):
     """
     unique_clusters = np.unique(cell_types).tolist()
     type_to_index = {tp: i for i, tp in enumerate(unique_clusters)}
-    one_hot = np.zeros((len(cell_types), len(unique_clusters)))
+    # ! Important: This needs to be torch and not numpy or else it causes issues!
+    one_hot = torch.zeros((len(cell_types), len(unique_clusters)))
     for i, tp in enumerate(cell_types):
-        one_hot[i, type_to_index[tp]] = 1
+        one_hot[i][type_to_index[tp]] = 1
     return one_hot, type_to_index, unique_clusters
 
 
@@ -223,7 +224,6 @@ def infer_cell_types_knn(true_embeds, pred_embeds, true_cell_types, args):
 
     Return: Array of inferred cell types per time point
     """
-    # TODO: finish this section here!
     inferred_labels_by_time = []
 
     k = args.knn_k
@@ -245,7 +245,7 @@ def infer_cell_types_knn(true_embeds, pred_embeds, true_cell_types, args):
         infer_label = np.zeros((pred_embed.shape[0], one_hot_true_cell_types.shape[1]))
         for i in range(pred_embed.shape[0]):
             neighbor_labels = one_hot_true_cell_types[indices[i], :]
-            infer_label[i, :] = np.mean(neighbor_labels, axis=0)
+            infer_label[i, :] = torch.mean(neighbor_labels, axis=0)
 
         inferred_labels_by_time.append(
             {"labels": infer_label, "mapping": type_to_index, "types": unique_clusters}
@@ -272,6 +272,8 @@ def get_labels(true_embed, pred_embed, args, one_hot_labels):
 
     F, G = ot_solver(pred_embed, true_embed)
 
+    # ! Important: everything that is inputted to KeOps needs to be torch FloatTensor
+    # ! Or else it just won't work... I hate this sometimes
     transfer = generic_sum(
         "Exp( (F_i + G_j - IntInv(2)*SqDist(X_i,Y_j)) / E ) * L_j",  # See the formula above
         f"Lab = Vi({one_hot_labels.shape[1]})",  # Output:  one vector of size one_hot_labels per line
@@ -342,7 +344,7 @@ def infer_cell_types_ot(true_embeds, pred_embeds, true_cell_types, args):
             torch.tensor(true_embed),
             torch.tensor(pred_embed),
             args,
-            torch.tensor(one_hot_true_cell_types),
+            one_hot_true_cell_types,
         )
 
         # now let's also calculate the transferred labels!
@@ -384,6 +386,7 @@ def plot_umap_embeddings(
     shared_path += f"/kl_coeff_{args.kl_coeff}" if args.kl_coeff != 0.0 else ""
 
     fig_dir = f"figs/embedding/" + shared_path
+    fig_dir += "/knn" if args.use_knn else "/ot"
     os.makedirs(fig_dir, exist_ok=True)
 
     # ** NOTE: We rely on benchmark_encoder to create this. I don't know why but I can't get the
@@ -505,15 +508,15 @@ def plot_umap_embeddings(
         )
 
         # 3) plot the true and predicted embeddings together, colored by their cell types
-        os.makedirs(f"{fig_dir}/umap_together", exist_ok=True)
-        plot_together(
-            f"UMAP of true and predicted embeddings at time {t}",
-            f"{fig_dir}/umap_together/time_{t}.png",
-            true_umap_embed,
-            pred_umap_embed,
-            tp_true_cell_type,
-            pred_cell_type,
-        )
+        # os.makedirs(f"{fig_dir}/umap_together", exist_ok=True)
+        # plot_together(
+        #     f"UMAP of true and predicted embeddings at time {t}",
+        #     f"{fig_dir}/umap_together/time_{t}.png",
+        #     true_umap_embed,
+        #     pred_umap_embed,
+        #     tp_true_cell_type,
+        #     pred_cell_type,
+        # )
 
 
 def calculate_ari(pred_embeds, inferred_cell_types, times_sorted):
@@ -559,6 +562,8 @@ if __name__ == "__main__":
     parser.add_argument("--use_knn", action="store_true")
     parser.add_argument("--knn_k", type=int, default=10)
 
+    parser.add_argument("--original_ari", action="store_true")
+
     args = parser.parse_args()
 
     data_name = args.dataset
@@ -582,6 +587,16 @@ if __name__ == "__main__":
     latent_ode_model = load_model(n_genes, split_type, args)
     print(f"Successfully loaded model")
 
+    if args.original_ari:
+        embeds, cell_labels = get_cell_embed_by_timepoint(
+            ann_data, times_sorted, latent_ode_model
+        )
+        # measure the original ARI as well
+        for t in range(len(times_sorted)):
+            ari = evaluate_ari(embeds[t], cell_labels[t])
+            print(f"Original ARI at time {times_sorted[t]}: {ari}")
+        exit()
+
     # now let's get the predicted cell embeddings, the true cell embeddings and its labels
     if args.measure_metric:
         pred_embeds, _ = get_cell_embed_by_timepoint(
@@ -604,7 +619,6 @@ if __name__ == "__main__":
     inferred_cell_types = []
     # and then calculate the inferred cell types using k-NN and/or OT
     if args.use_knn:
-        # TODO: this is not done yet
         print("Using k-NN to infer cell types")
         inferred_cell_types = infer_cell_types_knn(
             true_embeds, pred_embeds, true_cell_types, args
@@ -629,4 +643,4 @@ if __name__ == "__main__":
         times_sorted,
         args,
     )
-    ari_score = calculate_ari(pred_embeds, inferred_cell_types, times_sorted)
+    calculate_ari(pred_embeds, inferred_cell_types, times_sorted)

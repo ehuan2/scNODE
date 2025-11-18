@@ -7,6 +7,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import argparse
+import numpy as np
 
 
 # this uses two different libraries, Geomloss and POT
@@ -474,6 +475,60 @@ def test_transport(args):
     plot_transport(unequal_a, unequal_b, "unequal")
 
 
+def test_label_transfer(a, b, b_labels, args):
+    """
+    Given source points a and target points b, test the label transfer functionality.
+    """
+    ot_solver = SamplesLoss(
+        "sinkhorn",
+        p=2,
+        blur=args.reg,
+        debias=True,
+        backend="tensorized",
+        scaling=args.scaling,
+        potentials=True,
+        reach=args.reach,
+    )
+
+    F, G = ot_solver(a, b)
+
+    transfer = generic_sum(
+        "Exp( (F_i + G_j - IntInv(2)*SqDist(X_i,Y_j)) / E ) * L_j",  # See the formula above
+        f"Lab = Vi({b_labels.shape[1]})",  # Output:  one vector of size one_hot_labels per line
+        "E   = Pm(1)",  # 1st arg: a scalar parameter, the temperature
+        f"X_i = Vi({a.shape[1]})",  # 2nd arg: one 2d-point per line
+        f"Y_j = Vj({b.shape[1]})",  # 3rd arg: one 2d-point per column
+        "F_i = Vi(1)",  # 4th arg: one scalar value per line
+        "G_j = Vj(1)",  # 5th arg: one scalar value per column
+        f"L_j = Vj({b_labels.shape[1]})",
+    )  # 6th arg: one vector of size 3 per column
+
+    labels_i = transfer(
+        torch.Tensor([args.reg**2]).type(torch.FloatTensor),
+        a,
+        b,
+        F.view(-1, 1),
+        G.view(-1, 1),
+        b_labels,
+    ) / len(b)
+
+    true_labels = np.argmax(b_labels, axis=1)
+    infer_labels = np.argmax(labels_i, axis=1)
+
+    # now let's print these labels one by one:
+    with open("ot_figs/label_transfer_results.txt", "w") as f:
+        correct = 0
+        for i in range(len(a)):
+            f.write(
+                f"Point {i} out of {len(a)}, True Label: {true_labels[i]}, Inferred Label: {infer_labels[i]}"
+            )
+            f.write(f", Inferred One Hot Vector: {labels_i[i].tolist()}\n")
+            if true_labels[i] == infer_labels[i]:
+                correct += 1
+        accuracy = correct / len(a)
+        f.write(f"\nOverall Label Transfer Accuracy: {accuracy * 100:.2f}%\n")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--euclidean", action="store_true")
@@ -490,4 +545,40 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    test_transport(args)
+    a = torch.load("ot_figs/true_embed.pt")
+    true_test_labels = torch.load("ot_figs/one_hot_labels.pt")
+
+    # print(test_labels.shape)
+
+    # let's give dummy labels for testing
+    # k = 17
+    k = true_test_labels.shape[1]
+    test_labels = torch.zeros((a.shape[0], k))
+
+    for i in range(a.shape[0]):
+        test_labels[i][np.argmax(true_test_labels[i])] = 1
+
+    # check to see if every index in true_test_labels match test_labels
+    for i in range(a.shape[0]):
+        assert np.argmax(true_test_labels[i]) == np.argmax(
+            test_labels[i]
+        ), f"Mismatch at index {i}"
+
+    # assert torch.sum(true_test_labels, dim=1).eq(1).all(), "Each test label should be one-hot encoded."
+
+    # print(true_test_labels.shape, test_labels.shape)
+
+    # let's have the classes be split into k of them
+    # for i in range(k):
+    #     test_labels[a.shape[0] // k * i : a.shape[0] // k * (i + 1), i] = 1
+
+    # let's print out what the test labels look like
+    # test_labels = torch.load("ot_figs/one_hot_labels.pt")
+    # with open("ot_figs/true_labels.txt", "w") as f:
+    #     for i in range(test_labels.shape[0]):
+    #         label = torch.argmax(test_labels[i]).item()
+    #         f.write(f"Point {i}: True Label: {label}")
+    #         # print out the entire one hot vector as well
+    #         f.write(f", One Hot Vector: {test_labels[i].tolist()}\n")
+
+    test_label_transfer(a, a, test_labels, args)
