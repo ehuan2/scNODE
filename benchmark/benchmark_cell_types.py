@@ -310,11 +310,10 @@ def soft_labels_to_cell_types(labels_dict):
 
     cell_type_labels = np.full(labels.shape[0], "", dtype=object)
     for i in range(labels.shape[0]):
-        # if sum(labels[i]) == 0 or any(labels[i] == np.nan):
-        #     cell_type_labels[i] = 'unknown'
-        # else:
-        # cell_type_labels[i] = clusters[np.argmax(labels[i]).item()]
-        cell_type_labels[i] = clusters[np.argmax(labels[i]).item()]
+        if sum(labels[i]) == 0 or any(labels[i] == np.nan):
+            cell_type_labels[i] = "unknown"
+        else:
+            cell_type_labels[i] = clusters[np.argmax(labels[i]).item()]
 
     return cell_type_labels
 
