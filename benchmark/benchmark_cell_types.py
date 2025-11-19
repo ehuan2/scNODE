@@ -180,10 +180,8 @@ def get_cell_pred_embeds_joint(latent_ode_model, traj_data, tps, n_sim_cells=200
     for all time points using joint prediction
     """
     first_tp = traj_data[0]
-    all_cell_preds = predict_latent_embeds(
-        latent_ode_model, first_tp, tps, n_sim_cells * (len(tps) - 1)
-    )
-    return all_cell_preds
+    all_cell_preds = predict_latent_embeds(latent_ode_model, first_tp, tps, n_sim_cells)
+    return [all_cell_preds[:, t, :] for t in range(len(tps))]
 
 
 def get_cell_embed_by_timepoint(ann_data, times_sorted, latent_ode_model):
@@ -387,6 +385,7 @@ def plot_umap_embeddings(
 
     fig_dir = f"figs/embedding/" + shared_path
     fig_dir += "/knn" if args.use_knn else "/ot"
+    fig_dir += "/seq" if args.use_sequential_pred else "/joint"
     os.makedirs(fig_dir, exist_ok=True)
 
     # ** NOTE: We rely on benchmark_encoder to create this. I don't know why but I can't get the
@@ -594,7 +593,7 @@ if __name__ == "__main__":
         # measure the original ARI as well
         for t in range(len(times_sorted)):
             ari = evaluate_ari(embeds[t], cell_labels[t])
-            print(f"Original ARI at time {times_sorted[t]}: {ari}")
+            print(f"Time {times_sorted[t]} ARI: {ari}")
         exit()
 
     # now let's get the predicted cell embeddings, the true cell embeddings and its labels
@@ -609,7 +608,7 @@ if __name__ == "__main__":
         )
     else:
         print("Using joint prediction for cell embeddings")
-        pred_embeds = get_cell_pred_embeds_joint(latent_ode_model, traj_data, tps, args)
+        pred_embeds = get_cell_pred_embeds_joint(latent_ode_model, traj_data, tps)
 
     # ** Note cell prediction embeds are starting from time point 1, not time point 0 **
     true_embeds, true_cell_types = get_cell_embed_by_timepoint(
