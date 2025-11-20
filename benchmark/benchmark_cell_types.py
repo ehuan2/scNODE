@@ -26,7 +26,7 @@ def load_model(n_genes, split_type, args):
     act_name = "relu"
 
     latent_dim, drift_latent_size, enc_latent_list, dec_latent_list = tunedOurPars(
-        data_name, split_type
+        args.dataset, args.split_type.value
     )  # use tuned hyperparameters
     latent_ode_model = constructscNODEModel(
         n_genes,
@@ -545,8 +545,7 @@ def measure_metric(inferred_cell_types, true_cell_types, times_sorted, args):
         print(f"Time {t} Inferred Cell Type Accuracy: {accuracy}")
 
 
-if __name__ == "__main__":
-    parser = create_parser()
+def add_args_to_parser(parser):
     parser.add_argument("--use_sequential_pred", action="store_true")
 
     parser.add_argument("--measure_metric", action="store_true")
@@ -562,6 +561,10 @@ if __name__ == "__main__":
 
     parser.add_argument("--original_ari", action="store_true")
 
+
+if __name__ == "__main__":
+    parser = create_parser()
+    add_args_to_parser(parser)
     args = parser.parse_args()
 
     data_name = args.dataset
