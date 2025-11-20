@@ -121,6 +121,50 @@ def plot_switch_rate(trajectories, args):
     plt.close()
 
 
+def plot_entropy_over_time(trajectories, args):
+    """
+    Given the trajectories, plot the entropy of cell type distribution over time.
+    """
+    n_cells, n_tps = trajectories.shape
+
+    # as a first step, we need to get the one-hot encoding of cell types
+    cell_types = sorted(np.unique(trajectories).tolist())
+
+    def one_hot_mapping(cell_type):
+        one_hot = np.zeros(len(cell_types))
+        one_hot[cell_types.index(cell_type)] = 1
+        return one_hot
+
+    def get_entropy_of_cell(cell_traj):
+        """
+        For every single cell, compute the entropy of its cell type distribution
+        over time.
+        """
+        cell_label_probs = np.zeros(len(cell_types))
+        for t in range(n_tps):
+            cell_label_probs += one_hot_mapping(cell_traj[t])
+        cell_label_probs /= n_tps  # normalize to get probabilities
+        entropy = -np.sum([p * np.log2(p) for p in cell_label_probs if p > 0])
+        entropy /= np.log2(len(cell_types))  # normalize to [0, 1]
+        return entropy
+
+    entropies = []
+    for cell in range(n_cells):
+        cell_traj = trajectories[cell, :]
+        entropy = get_entropy_of_cell(cell_traj)
+        entropies.append(entropy)
+
+    # now let's do a histogram of entropies
+    plt.figure(figsize=(10, 6))
+    plt.hist(entropies, bins=30, color="teal", alpha=0.7)
+    plt.xlabel("Entropy")
+    plt.ylabel("Number of Cells")
+    plt.title("Distribution of Cell Type Entropy over Time")
+    plt.grid()
+    plt.savefig(os.path.join(create_traj_dir(args), "entropy_distribution.png"))
+    plt.close()
+
+
 if __name__ == "__main__":
     parser = create_parser()
     add_args_to_parser(parser)
@@ -170,3 +214,6 @@ if __name__ == "__main__":
 
     plot_switch_rate(trajectories, args)
     print(f"Plotted cell type switch rates")
+
+    plot_entropy_over_time(trajectories, args)
+    print(f"Plotted cell type entropy over time")
