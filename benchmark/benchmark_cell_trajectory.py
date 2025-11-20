@@ -26,6 +26,30 @@ from benchmark.BenchmarkUtils import (
 )
 import pandas as pd
 from plot_sankey import plot_sankey_from_labels
+import matplotlib.pyplot as plt
+
+from optim.running import add_to_dir
+
+
+def create_traj_dir(args):
+    fig_dir = "./figs/trajectories/"
+    fig_dir += f"/kl_coeff_{args.kl_coeff}" if args.kl_coeff != 0.0 else ""
+    fig_dir += add_to_dir(args, args.pretrain_only)
+
+    fig_dir += "/knn" if args.use_knn else "/ot"
+
+    if not args.use_knn:
+        fig_dir += "_unbalanced" if args.unbalanced_ot else "_balanced"
+        fig_dir += (
+            f"_scaling_{args.unbalanced_ot_scaling}" if args.unbalanced_ot else ""
+        )
+        fig_dir += f"_reach_{args.unbalanced_ot_reach}" if args.unbalanced_ot else ""
+        fig_dir += f"_blur_{args.unbalanced_ot_blur}" if args.unbalanced_ot else ""
+
+    fig_dir += "/seq" if args.use_sequential_pred else "/joint"
+
+    os.makedirs(fig_dir, exist_ok=True)
+    return fig_dir
 
 
 def create_trajectory(inferred_cell_types):
@@ -46,7 +70,7 @@ def create_trajectory(inferred_cell_types):
     return trajectories
 
 
-def plot_trajectory(trajectories, times_sorted, cell_type):
+def plot_trajectory(trajectories, times_sorted, cell_type, args):
     traj_dict = {tp: [] for tp in times_sorted}
     n_tps = len(times_sorted)
 
@@ -57,7 +81,7 @@ def plot_trajectory(trajectories, times_sorted, cell_type):
     # plot the trajectories that we care about
     trajectories = pd.DataFrame(traj_dict)
 
-    path_dir = f"./figs/trajectories/{cell_type}/"
+    path_dir = os.path.join(create_traj_dir(args), f"{cell_type}")
     os.makedirs(path_dir, exist_ok=True)
     plot_sankey_from_labels(
         trajectories,
@@ -66,11 +90,35 @@ def plot_trajectory(trajectories, times_sorted, cell_type):
     )
 
 
-def plot_trajectory_per_cell_type(trajectories, times_sorted):
+def plot_trajectory_per_cell_type(trajectories, times_sorted, args):
     for cell_type in set(trajectories.flatten()):
         # filter trajectories for this cell type
         filtered_trajectories = trajectories[trajectories[:, 0] == cell_type]
-        plot_trajectory(filtered_trajectories, times_sorted, cell_type)
+        plot_trajectory(filtered_trajectories, times_sorted, cell_type, args)
+
+
+def plot_switch_rate(trajectories, args):
+    """
+    Given the trajectories, plot the switch rate of the cells.
+    """
+    n_cells, n_tps = trajectories.shape
+
+    # iterate over the time points and count switches
+    switch_counts = np.zeros(n_tps - 1)
+    for t in range(n_tps - 1):
+        for cell in range(n_cells):
+            if trajectories[cell, t] != trajectories[cell, t + 1]:
+                switch_counts[t] += 1
+        switch_counts[t] /= n_cells  # normalize
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(range(n_tps - 1), switch_counts, marker="o", color="purple")
+    plt.xlabel("Time Point")
+    plt.ylabel("Switch Rate")
+    plt.title("Cell Type Switch Rate over Time")
+    plt.grid()
+    plt.savefig(os.path.join(create_traj_dir(args), "switch_rate.png"))
+    plt.close()
 
 
 if __name__ == "__main__":
@@ -100,7 +148,6 @@ if __name__ == "__main__":
     print(f"Successfully loaded model")
 
     if args.use_sequential_pred:
-        # TODO: need to actually fix this s.t. it's not just sequential, but sequential all the way
         pred_embeds = get_cell_pred_embeds_sequential(latent_ode_model, traj_data, tps)
     else:
         pred_embeds = get_cell_pred_embeds_joint(latent_ode_model, traj_data, tps)
@@ -117,4 +164,9 @@ if __name__ == "__main__":
 
     # now we can use these inferred cell types to create trajectories
     trajectories = create_trajectory(inferred_cell_types)
-    plot_trajectory_per_cell_type(trajectories, times_sorted)
+
+    plot_trajectory_per_cell_type(trajectories, times_sorted, args)
+    print(f"Plotted cell type trajectories")
+
+    plot_switch_rate(trajectories, args)
+    print(f"Plotted cell type switch rates")
