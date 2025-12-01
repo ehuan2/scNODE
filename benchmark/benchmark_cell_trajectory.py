@@ -3,9 +3,20 @@ benchmark_cell_trajectory.py
 
 Measures the trajectory of each cell that we simulate,
 and then compares whether this trajectory makes sense.
+
+This is to evaluate NODE and its components. Mainly through:
+1. Plotting the trajectory of each cell type over time, and seeing if the trajectories
+are expected visually.
+2. Measuring some general metrics for this trajectory.
+
+TODO:
+    3. Measuring the differentially expressed genes over time for each cell type, and comparing
+    them to the true DE genes.
+    4. Measuring everything compared to cell ontology
 """
 import os
 
+import torch
 import numpy as np
 
 from benchmark_cell_types import (
@@ -16,6 +27,7 @@ from benchmark_cell_types import (
     get_cell_pred_embeds_sequential,
     get_cell_embed_by_timepoint,
     infer_cell_types_ot,
+    infer_cell_types_knn,
     add_args_to_parser,
     soft_labels_to_cell_types,
 )
@@ -165,9 +177,102 @@ def plot_entropy_over_time(trajectories, args):
     plt.close()
 
 
+def reconstruct_gene_expression_from_embeddings(embeddings, model):
+    """
+    Given the embeddings and the model, reconstruct the gene expression profiles.
+    """
+    reconstructed = []
+    for t in range(len(embeddings)):
+        recon_t = model.obs_decoder(torch.FloatTensor(embeddings[t])).detach().numpy()
+        reconstructed.append(recon_t)
+    return reconstructed
+
+
+def pseudo_bulk_by_cell_type(reconstructed, cell_types):
+    """
+    Given the reconstructed gene expression profiles and the cell types,
+    pseudo-bulk the gene expression profiles by cell type at each time point.
+    """
+    n_tps = len(reconstructed)
+    pseudo_bulk = {}
+
+    for t in range(n_tps):
+        pseudo_bulk[t] = {}
+        unique_cell_types = set(cell_types[t])
+        for cell_type in unique_cell_types:
+            # get indices of cells of this type, 0 because np.where returns a tuple
+            cell_indices = np.where(cell_types[t] == cell_type)[0]
+            pseudo_bulk[t][cell_type] = np.mean(reconstructed[t][cell_indices], axis=0)
+
+    return pseudo_bulk
+
+
+def time_de_analysis(pseudo_bulk, cell_type):
+    """
+    Given the pseudo-bulked gene expression profiles, perform differential expression
+    analysis over time for a given cell type.
+    """
+
+
+def diff_gene_analysis(
+    args, pred_embeds, true_embeds, inferred_cell_types, true_cell_types, model
+):
+    """
+    Perform differential gene analysis on the inferred trajectories.
+
+    This is done through the following steps:
+    1. Reconstruct the gene expression profiles from the embeddings.
+    2. Pseudo-bulk the gene expression profiles by cell type at each time point
+    3. For each cell type, perform differential gene analysis over time.
+    4. Compare the DE genes to the true DE genes.
+
+    Then we can do differential gene analysis over:
+    a. time for each cell type
+    b. between cell types at each time point
+    """
+
+    # Step 1: Reconstruct gene expression profiles from embeddings
+    print(f"Shape of pred_embeds: {[embed.shape for embed in pred_embeds]}")
+    print(f"Shape of true_embeds: {[embed.shape for embed in true_embeds]}")
+    pred_recon = reconstruct_gene_expression_from_embeddings(pred_embeds, model)
+    true_recon = reconstruct_gene_expression_from_embeddings(true_embeds, model)
+    print(f"Shape of pred_recon: {[recon.shape for recon in pred_recon]}")
+    print(f"Shape of true_recon: {[recon.shape for recon in true_recon]}")
+
+    # Step 2: Pseudo-bulk the gene expression profiles by cell type at each time point
+    pred_pseudo_bulk = pseudo_bulk_by_cell_type(
+        pred_recon,
+        [
+            soft_labels_to_cell_types(inferred_cell_types[t])
+            for t in range(len(inferred_cell_types))
+        ],
+    )
+    true_pseudo_bulk = pseudo_bulk_by_cell_type(true_recon, true_cell_types)
+
+    print(pred_pseudo_bulk)
+    print(true_pseudo_bulk)
+
+    exit()
+    # Step 3: For each cell type, perform differential gene analysis over time
+    # TODO: implement here!
+    for cell_type in set(true_cell_types[0]):
+        true_de_set = time_de_analysis(true_pseudo_bulk, cell_type)
+        pred_de_set = time_de_analysis(pred_pseudo_bulk, cell_type)
+
+
 if __name__ == "__main__":
     parser = create_parser()
     add_args_to_parser(parser)
+    parser.add_argument(
+        "--sankey_plot",
+        action="store_true",
+        help="Whether to plot sankey diagrams for cell type trajectories.",
+    )
+    parser.add_argument(
+        "--diff_genes",
+        action="store_true",
+        help="Whether to perform differential gene analysis.",
+    )
     args = parser.parse_args()
 
     data_name = args.dataset
@@ -202,18 +307,35 @@ if __name__ == "__main__":
     )
 
     # now we use these true_embeds to infer the cell labels
-    inferred_cell_types = infer_cell_types_ot(
-        true_embeds, pred_embeds, true_cell_types, args
-    )
+    if args.use_knn:
+        inferred_cell_types = infer_cell_types_knn(
+            true_embeds, pred_embeds, true_cell_types, args
+        )
+    else:
+        inferred_cell_types = infer_cell_types_ot(
+            true_embeds, pred_embeds, true_cell_types, args
+        )
 
     # now we can use these inferred cell types to create trajectories
     trajectories = create_trajectory(inferred_cell_types)
 
-    plot_trajectory_per_cell_type(trajectories, times_sorted, args)
-    print(f"Plotted cell type trajectories")
+    if args.sankey_plot:
+        plot_trajectory_per_cell_type(trajectories, times_sorted, args)
+        print(f"Plotted cell type trajectories")
 
-    plot_switch_rate(trajectories, args)
-    print(f"Plotted cell type switch rates")
+        plot_switch_rate(trajectories, args)
+        print(f"Plotted cell type switch rates")
 
-    plot_entropy_over_time(trajectories, args)
-    print(f"Plotted cell type entropy over time")
+        plot_entropy_over_time(trajectories, args)
+        print(f"Plotted cell type entropy over time")
+
+    if args.diff_genes:
+        print("Diff gene analysis to be implemented.")
+        diff_gene_analysis(
+            args,
+            pred_embeds,
+            true_embeds,
+            inferred_cell_types,
+            true_cell_types,
+            latent_ode_model,
+        )
