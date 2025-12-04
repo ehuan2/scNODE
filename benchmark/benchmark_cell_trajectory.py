@@ -18,6 +18,7 @@ import os
 
 import torch
 import numpy as np
+from pprint import pprint
 
 from benchmark_cell_types import (
     load_model,
@@ -207,11 +208,81 @@ def pseudo_bulk_by_cell_type(reconstructed, cell_types):
     return pseudo_bulk
 
 
+def create_time_aggregate_pseudo_bulk(pseudo_bulk):
+    """
+    Given the pseudo-bulked gene expression profiles, the cell types,
+    create a pseudo-bulk profile for a specific cell type across all time points.
+
+    i.e. we will be aggregating the pseudo-bulk profiles for this cell type
+    across all time points.
+    """
+    cell_type_pseudo_bulk = {}
+    time_points = sorted(pseudo_bulk.keys())
+
+    cell_types = set()
+    for tp in time_points:
+        cell_types.update(pseudo_bulk[tp].keys())
+
+    for cell_type in cell_types:
+        samples = []
+        for tp in time_points:
+            if cell_type in pseudo_bulk[tp]:
+                samples.append(pseudo_bulk[tp][cell_type])
+
+        if samples:
+            cell_type_pseudo_bulk[cell_type] = np.mean(samples, axis=0)
+
+    return cell_type_pseudo_bulk
+
+
+def create_celltype_aggregate_pseudo_bulk(pseudo_bulk):
+    """
+    Given the pseudo-bulked gene expression profiles, create a pseudo-bulk profile
+    for each time point across all cell types.
+
+    i.e. we will be aggregating the pseudo-bulk profiles for all cell types
+    at each time point.
+    """
+    timepoint_pseudo_bulk = {}
+    time_points = sorted(pseudo_bulk.keys())
+
+    for tp in time_points:
+        samples = []
+        for cell_type in pseudo_bulk[tp]:
+            samples.append(pseudo_bulk[tp][cell_type])
+
+        if samples:
+            timepoint_pseudo_bulk[tp] = np.mean(samples, axis=0)
+
+    return timepoint_pseudo_bulk
+
+
+def mse_between_pseudo_bulks(pseudo_bulk1, pseudo_bulk2):
+    """
+    Given two pseudo-bulked gene expression profiles, compute the MSE between them.
+    """
+    return np.mean((pseudo_bulk1 - pseudo_bulk2) ** 2)
+
+
 def time_de_analysis(pseudo_bulk, cell_type):
     """
     Given the pseudo-bulked gene expression profiles, perform differential expression
     analysis over time for a given cell type.
     """
+
+    de_genes = set()
+    time_points = sorted(pseudo_bulk.keys())
+    n_tps = len(time_points)
+
+    for i in range(n_tps - 1):
+        tp1 = time_points[i]
+        tp2 = time_points[i + 1]
+
+        if cell_type in pseudo_bulk[tp1] and cell_type in pseudo_bulk[tp2]:
+            expr1 = pseudo_bulk[tp1][cell_type]
+            expr2 = pseudo_bulk[tp2][cell_type]
+
+    return de_genes
 
 
 def diff_gene_analysis(
@@ -249,15 +320,136 @@ def diff_gene_analysis(
     )
     true_pseudo_bulk = pseudo_bulk_by_cell_type(true_recon, true_cell_types)
 
-    print(pred_pseudo_bulk)
-    print(true_pseudo_bulk)
+    # For the next section, where we measure different metrics, we need to create three
+    # different tasks per metric.
+    # Task 1: Per cell type, per time point. (done previously)
 
-    exit()
-    # Step 3: For each cell type, perform differential gene analysis over time
-    # TODO: implement here!
-    for cell_type in set(true_cell_types[0]):
+    # let's create these different pseudobulks!
+    # Task 2: Per cell type, aggregated over time points.
+    pred_time_aggregate_pseudo_bulk = create_time_aggregate_pseudo_bulk(
+        pred_pseudo_bulk
+    )
+    true_time_aggregate_pseudo_bulk = create_time_aggregate_pseudo_bulk(
+        true_pseudo_bulk
+    )
+
+    # Task 3: Per time point, aggregated over cell types.
+    pred_celltype_aggregate_pseudo_bulk = create_celltype_aggregate_pseudo_bulk(
+        pred_pseudo_bulk
+    )
+    true_celltype_aggregate_pseudo_bulk = create_celltype_aggregate_pseudo_bulk(
+        true_pseudo_bulk
+    )
+
+    # create the cell types we want!
+    cell_types = set()
+    for tp in pred_pseudo_bulk:
+        cell_types.update(pred_pseudo_bulk[tp].keys())
+    for tp in true_pseudo_bulk:
+        cell_types.update(true_pseudo_bulk[tp].keys())
+
+    def run_fn(fn):
+        """
+        Given a function, run it on all three types of tasks
+        """
+        # Task 1: Per cell type, per time point
+        finegrain_metric = {}
+        for cell_type in cell_types:
+            for tp in range(len(times_sorted)):
+                if (
+                    cell_type in pred_pseudo_bulk[tp]
+                    and cell_type in true_pseudo_bulk[tp]
+                ):
+                    finegrain_metric[f"{(cell_type, tp)}"] = fn(
+                        pred_pseudo_bulk[tp][cell_type], true_pseudo_bulk[tp][cell_type]
+                    )
+                elif (
+                    cell_type not in pred_pseudo_bulk[tp]
+                    and cell_type in true_pseudo_bulk[tp]
+                ):
+                    print(
+                        f"Cell type {cell_type} missing in one of the pseudo-bulks at time point {tp}"
+                    )
+                    finegrain_metric[f"{(cell_type, tp)}"] = None
+
+        # Task 2: Per cell type, aggregated over time points
+        time_agg_metric = {}
+        for cell_type in cell_types:
+            if (
+                cell_type in pred_time_aggregate_pseudo_bulk
+                and cell_type in true_time_aggregate_pseudo_bulk
+            ):
+                time_agg_metric[cell_type] = fn(
+                    pred_time_aggregate_pseudo_bulk[cell_type],
+                    true_time_aggregate_pseudo_bulk[cell_type],
+                )
+            elif (
+                cell_type not in pred_time_aggregate_pseudo_bulk
+                and cell_type in true_time_aggregate_pseudo_bulk
+            ):
+                print(f"Cell type {cell_type} missing in time aggregated pseudo-bulks")
+                time_agg_metric[cell_type] = None
+
+        # Task 3: Per time point, aggregated over cell types
+        celltype_agg_metric = {}
+        for tp in range(len(times_sorted)):
+            celltype_agg_metric[tp] = fn(
+                pred_celltype_aggregate_pseudo_bulk[tp],
+                true_celltype_aggregate_pseudo_bulk[tp],
+            )
+
+        return finegrain_metric, time_agg_metric, celltype_agg_metric
+
+    # Step 3: Compute MSE between pseudo-bulks
+    finegrain_mse, time_agg_mse, celltype_agg_mse = run_fn(mse_between_pseudo_bulks)
+
+    with open("./logs/diff_gene/mse.txt", "w") as f:
+        f.write("Fine-grain MSE per cell type and time point:\n")
+        pprint(finegrain_mse, stream=f)
+        f.write("Time-aggregated MSE per cell type:\n")
+        pprint(time_agg_mse, stream=f)
+        f.write("Cell type-aggregated MSE per time point:\n")
+        pprint(celltype_agg_mse, stream=f)
+
+    # Step 4: For each cell type, perform differential gene analysis over time
+    for cell_type in cell_types:
         true_de_set = time_de_analysis(true_pseudo_bulk, cell_type)
         pred_de_set = time_de_analysis(pred_pseudo_bulk, cell_type)
+
+
+def prepare_cells(args, ann_data, latent_ode_model):
+    """
+    Based on the ann_data, prepare the following:
+    1. True embeddings at each time point
+    2. True cell types at each time point
+    3. Predicted embeddings at each time point
+    4. Inferred cell types at each time point
+    5. Sorted times
+    """
+    traj_data, tps, times_sorted = prep_traj_data(ann_data)
+    tps = tps_to_continuous(tps, times_sorted)
+
+    if args.use_sequential_pred:
+        pred_embeds = get_cell_pred_embeds_sequential(latent_ode_model, traj_data, tps)
+    else:
+        pred_embeds = get_cell_pred_embeds_joint(latent_ode_model, traj_data, tps)
+
+    # ** Note cell prediction embeds are starting from time point 1, not time point 0 **
+    true_embeds, true_cell_types = get_cell_embed_by_timepoint(
+        ann_data, times_sorted, latent_ode_model
+    )
+
+    # now we use these true_embeds to infer the cell labels
+    if args.use_knn:
+        inferred_cell_types = infer_cell_types_knn(
+            true_embeds, pred_embeds, true_cell_types, args
+        )
+    else:
+        inferred_cell_types = infer_cell_types_ot(
+            true_embeds, pred_embeds, true_cell_types, args
+        )
+
+    return true_embeds, true_cell_types, pred_embeds, inferred_cell_types, times_sorted
 
 
 if __name__ == "__main__":
@@ -287,39 +479,42 @@ if __name__ == "__main__":
         normalize_data=args.normalize,
     )
 
-    traj_data, tps, times_sorted = prep_traj_data(ann_data)
-    tps = tps_to_continuous(tps, times_sorted)
-
-    # simple: take the latent model
-    # run prediction on it
-    # take the latent_seq instead of recon_obs
     latent_ode_model = load_model(n_genes, split_type, args)
     print(f"Successfully loaded model")
 
-    if args.use_sequential_pred:
-        pred_embeds = get_cell_pred_embeds_sequential(latent_ode_model, traj_data, tps)
-    else:
-        pred_embeds = get_cell_pred_embeds_joint(latent_ode_model, traj_data, tps)
-
-    # ** Note cell prediction embeds are starting from time point 1, not time point 0 **
-    true_embeds, true_cell_types = get_cell_embed_by_timepoint(
-        ann_data, times_sorted, latent_ode_model
-    )
-
-    # now we use these true_embeds to infer the cell labels
-    if args.use_knn:
-        inferred_cell_types = infer_cell_types_knn(
-            true_embeds, pred_embeds, true_cell_types, args
+    # let's save all of this information if needed
+    if not os.path.exists("./logs/embeds.pkl"):
+        (
+            true_embeds,
+            true_cell_types,
+            pred_embeds,
+            inferred_cell_types,
+            times_sorted,
+        ) = prepare_cells(args, ann_data, latent_ode_model)
+        print(f"Successfully prepared cell embeddings and cell types")
+        torch.save(
+            {
+                "true_embeds": true_embeds,
+                "true_cell_types": true_cell_types,
+                "pred_embeds": pred_embeds,
+                "inferred_cell_types": inferred_cell_types,
+                "times_sorted": times_sorted,
+            },
+            "./logs/embeds.pkl",
         )
+        print(f"Saved embeddings and cell types to ./logs/embeds.pkl")
     else:
-        inferred_cell_types = infer_cell_types_ot(
-            true_embeds, pred_embeds, true_cell_types, args
-        )
-
-    # now we can use these inferred cell types to create trajectories
-    trajectories = create_trajectory(inferred_cell_types)
+        print(f"Loading pre-saved embeddings and cell types")
+        data = torch.load("./logs/embeds.pkl", weights_only=False)
+        true_embeds = data["true_embeds"]
+        true_cell_types = data["true_cell_types"]
+        pred_embeds = data["pred_embeds"]
+        inferred_cell_types = data["inferred_cell_types"]
+        times_sorted = data["times_sorted"]
 
     if args.sankey_plot:
+        # now we can use these inferred cell types to create trajectories
+        trajectories = create_trajectory(inferred_cell_types)
         plot_trajectory_per_cell_type(trajectories, times_sorted, args)
         print(f"Plotted cell type trajectories")
 
@@ -328,9 +523,10 @@ if __name__ == "__main__":
 
         plot_entropy_over_time(trajectories, args)
         print(f"Plotted cell type entropy over time")
+        exit()
 
     if args.diff_genes:
-        print("Diff gene analysis to be implemented.")
+        print("Diff. gene analysis to be implemented.")
         diff_gene_analysis(
             args,
             pred_embeds,
@@ -339,3 +535,4 @@ if __name__ == "__main__":
             true_cell_types,
             latent_ode_model,
         )
+        exit()
