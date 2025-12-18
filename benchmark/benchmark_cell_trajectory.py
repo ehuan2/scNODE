@@ -42,6 +42,7 @@ from plot_sankey import plot_sankey_from_labels
 import matplotlib.pyplot as plt
 
 from optim.running import add_to_dir
+from scipy.stats import spearmanr
 
 
 def create_traj_dir(args):
@@ -270,7 +271,8 @@ def time_de_analysis(pseudo_bulk, cell_type):
     analysis over time for a given cell type.
     """
 
-    de_genes = set()
+    # keep track of a ranked list of DE genes
+    de_genes = {}
     time_points = sorted(pseudo_bulk.keys())
     n_tps = len(time_points)
 
@@ -281,8 +283,146 @@ def time_de_analysis(pseudo_bulk, cell_type):
         if cell_type in pseudo_bulk[tp1] and cell_type in pseudo_bulk[tp2]:
             expr1 = pseudo_bulk[tp1][cell_type]
             expr2 = pseudo_bulk[tp2][cell_type]
+            # log fold change, future timepoint / past timepoint, sorted descending
+            de_genes_tp = np.log2((expr2 + 1e-8) / (expr1 + 1e-8))
+            de_genes_tp = np.argsort(
+                -de_genes_tp
+            )  # descending order, store their indices
+            de_genes[(tp1, tp2)] = de_genes_tp
 
     return de_genes
+
+
+def plot_time_de(true_de_set, pred_de_set, cell_types):
+    """
+    Plots the number of overlapping DE genes, and Spearman correlation between true and predicted sets over time for each cell type.
+    """
+
+    # Collect metrics for all cell types
+    metrics_data = {
+        "cell_type": [],
+        "time_pair": [],
+        "overlap": [],
+        "spearman_corr": [],
+    }
+
+    for cell_type in cell_types:
+        for tp_pair in true_de_set[cell_type]:
+            if tp_pair in pred_de_set[cell_type]:
+                # compute overlap in top 100 DE genes
+                true_top_genes = set(true_de_set[cell_type][tp_pair][:100])
+                pred_top_genes = set(pred_de_set[cell_type][tp_pair][:100])
+                overlap = true_top_genes.intersection(pred_top_genes)
+                print(
+                    f"Cell type {cell_type}, Time points {tp_pair}: Overlap in top 100 DE genes: {len(overlap)}"
+                )
+
+                # finally, let's calculate the Spearman correlation between the log fold changes
+                spearman = spearmanr(
+                    true_de_set[cell_type][tp_pair], pred_de_set[cell_type][tp_pair]
+                )
+                print(
+                    f"Cell type {cell_type}, Time points {tp_pair}: Spearman correlation: {spearman.statistic}"
+                )
+
+                # Store metrics
+                metrics_data["cell_type"].append(cell_type)
+                metrics_data["time_pair"].append(f"{tp_pair[0]}->{tp_pair[1]}")
+                metrics_data["overlap"].append(len(overlap))
+                metrics_data["spearman_corr"].append(spearman.statistic)
+
+            else:
+                print(
+                    f"Cell type {cell_type}, Time points {tp_pair}: No predicted DE genes found."
+                )
+
+    # Create two large visualizations with 4x5 grid for each metric type
+    if metrics_data["cell_type"]:
+        metrics_df = pd.DataFrame(metrics_data)
+        unique_cell_types = sorted(metrics_df["cell_type"].unique())
+        n_cell_types = len(unique_cell_types)
+
+        fig_dir = "./figs/differential_expression/"
+        os.makedirs(fig_dir, exist_ok=True)
+
+        # Create figure for overlap with 4x5 grid
+        fig_overlap, axes_overlap = plt.subplots(4, 5, figsize=(20, 16))
+        axes_overlap_flat = axes_overlap.flatten()
+
+        # Create figure for Spearman correlation with 4x5 grid
+        fig_corr, axes_corr = plt.subplots(4, 5, figsize=(20, 16))
+        axes_corr_flat = axes_corr.flatten()
+
+        for idx, cell_type in enumerate(unique_cell_types):
+            cell_type_data = metrics_df[metrics_df["cell_type"] == cell_type]
+            time_pairs = cell_type_data["time_pair"].values
+            x_pos = range(len(time_pairs))
+
+            # Plot overlap as line graph
+            ax_overlap = axes_overlap_flat[idx]
+            ax_overlap.plot(
+                x_pos,
+                cell_type_data["overlap"].values,
+                marker="o",
+                color="steelblue",
+                linewidth=2,
+                markersize=6,
+            )
+            ax_overlap.set_title(f"{cell_type}", fontsize=10)
+            ax_overlap.set_xlabel("Time Transition")
+            ax_overlap.set_ylabel("Overlap Count")
+            ax_overlap.set_xticks(x_pos)
+            ax_overlap.set_xticklabels(time_pairs, rotation=45, ha="right", fontsize=8)
+            ax_overlap.set_ylim(0, 100)
+            ax_overlap.grid(True, alpha=0.3)
+
+            # Plot Spearman correlation as line graph
+            ax_corr = axes_corr_flat[idx]
+            ax_corr.plot(
+                x_pos,
+                cell_type_data["spearman_corr"].values,
+                marker="s",
+                color="coral",
+                linewidth=2,
+                markersize=6,
+            )
+            ax_corr.set_title(f"{cell_type}", fontsize=10)
+            ax_corr.set_xlabel("Time Transition")
+            ax_corr.set_ylabel("Spearman r")
+            ax_corr.set_xticks(x_pos)
+            ax_corr.set_xticklabels(time_pairs, rotation=45, ha="right", fontsize=8)
+            ax_corr.set_ylim(-1, 1)
+            ax_corr.axhline(y=0, color="k", linestyle="--", alpha=0.3)
+            ax_corr.grid(True, alpha=0.3)
+
+        # Hide unused subplots
+        for idx in range(n_cell_types, 20):
+            axes_overlap_flat[idx].set_visible(False)
+            axes_corr_flat[idx].set_visible(False)
+
+        # Save overlap figure
+        fig_overlap.suptitle("Overlap in Top 100 DE Genes", fontsize=14, y=0.995)
+        plt.figure(fig_overlap.number)
+        plt.tight_layout()
+        plt.savefig(
+            os.path.join(fig_dir, "time_de_overlap.png"), dpi=300, bbox_inches="tight"
+        )
+        print(f"Saved overlap plot to {fig_dir}")
+        plt.close(fig_overlap)
+
+        # Save Spearman correlation figure
+        fig_corr.suptitle(
+            "Spearman Correlation between True and Predicted DE Genes",
+            fontsize=14,
+            y=0.995,
+        )
+        plt.figure(fig_corr.number)
+        plt.tight_layout()
+        plt.savefig(
+            os.path.join(fig_dir, "time_de_spearman.png"), dpi=300, bbox_inches="tight"
+        )
+        print(f"Saved Spearman correlation plot to {fig_dir}")
+        plt.close(fig_corr)
 
 
 def diff_gene_analysis(
@@ -412,9 +552,13 @@ def diff_gene_analysis(
         pprint(celltype_agg_mse, stream=f)
 
     # Step 4: For each cell type, perform differential gene analysis over time
+    true_de_set = {}
+    pred_de_set = {}
     for cell_type in cell_types:
-        true_de_set = time_de_analysis(true_pseudo_bulk, cell_type)
-        pred_de_set = time_de_analysis(pred_pseudo_bulk, cell_type)
+        true_de_set[cell_type] = time_de_analysis(true_pseudo_bulk, cell_type)
+        pred_de_set[cell_type] = time_de_analysis(pred_pseudo_bulk, cell_type)
+
+    plot_time_de(true_de_set, pred_de_set, cell_types)
 
 
 def prepare_cells(args, ann_data, latent_ode_model):
@@ -470,20 +614,22 @@ if __name__ == "__main__":
     data_name = args.dataset
     split_type = args.split_type.value
 
-    # 154000 cells by 2000 genes (HVGs) if true
-    ann_data, cell_tps, cell_types, n_genes, n_tps = loadSCData(
-        data_name,
-        split_type,
-        path_to_dir="../",
-        use_hvgs=args.hvgs,
-        normalize_data=args.normalize,
-    )
+    n_genes = 2000
 
     latent_ode_model = load_model(n_genes, split_type, args)
     print(f"Successfully loaded model")
 
     # let's save all of this information if needed
     if not os.path.exists("./logs/embeds.pkl"):
+        # 154000 cells by 2000 genes (HVGs) if true
+        ann_data, cell_tps, cell_types, n_genes, n_tps = loadSCData(
+            data_name,
+            split_type,
+            path_to_dir="../",
+            use_hvgs=args.hvgs,
+            normalize_data=args.normalize,
+        )
+
         (
             true_embeds,
             true_cell_types,
@@ -525,6 +671,7 @@ if __name__ == "__main__":
         print(f"Plotted cell type entropy over time")
         exit()
 
+    # TODO: read from ann_data the names of different genes as verification!
     if args.diff_genes:
         print("Diff. gene analysis to be implemented.")
         diff_gene_analysis(
