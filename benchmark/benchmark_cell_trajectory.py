@@ -280,17 +280,117 @@ def time_de_analysis(pseudo_bulk, cell_type):
         tp1 = time_points[i]
         tp2 = time_points[i + 1]
 
-        if cell_type in pseudo_bulk[tp1] and cell_type in pseudo_bulk[tp2]:
+        expr1, expr2 = None, None
+        if cell_type is None:
+            expr1 = pseudo_bulk[tp1]
+            expr2 = pseudo_bulk[tp2]
+        elif cell_type in pseudo_bulk[tp1] and cell_type in pseudo_bulk[tp2]:
             expr1 = pseudo_bulk[tp1][cell_type]
             expr2 = pseudo_bulk[tp2][cell_type]
-            # log fold change, future timepoint / past timepoint, sorted descending
-            de_genes_tp = np.log2((expr2 + 1e-8) / (expr1 + 1e-8))
-            de_genes_tp = np.argsort(
-                -de_genes_tp
-            )  # descending order, store their indices
-            de_genes[(tp1, tp2)] = de_genes_tp
+
+        if expr1 is None or expr2 is None:
+            continue
+
+        # log fold change, future timepoint / past timepoint, sorted descending
+        de_genes_tp = np.log2((expr2 + 1e-8) / (expr1 + 1e-8))
+        de_genes_tp = np.argsort(-de_genes_tp)  # descending order, store their indices
+        de_genes[(tp1, tp2)] = de_genes_tp
 
     return de_genes
+
+
+def plot_time_de_all(true_de_set, pred_de_set):
+    """
+    Plots the number of overlapping DE genes, and Spearman correlation, but aggregated over all cell types.
+    """
+    # Collect metrics for all cell types
+    metrics_data = {
+        "time_pair": [],
+        "overlap": [],
+        "spearman_corr": [],
+    }
+
+    for tp_pair in true_de_set:
+        if tp_pair in pred_de_set:
+            # compute overlap in top 100 DE genes
+            true_top_genes = set(true_de_set[tp_pair][:100])
+            pred_top_genes = set(pred_de_set[tp_pair][:100])
+            overlap = true_top_genes.intersection(pred_top_genes)
+            print(
+                f"Overall Time DE Analysis, Time points {tp_pair}: Overlap in top 100 DE genes: {len(overlap)}"
+            )
+
+            # finally, let's calculate the Spearman correlation
+            spearman = spearmanr(true_de_set[tp_pair], pred_de_set[tp_pair])
+            print(
+                f"Overall Time DE Analysis, Time points {tp_pair}: Spearman correlation: {spearman.statistic}"
+            )
+            metrics_data["time_pair"].append(f"{tp_pair[0]}->{tp_pair[1]}")
+            metrics_data["overlap"].append(len(overlap))
+            metrics_data["spearman_corr"].append(spearman.statistic)
+
+    # now let's plot it all:
+    metrics_df = pd.DataFrame(metrics_data)
+
+    fig_dir = "./figs/differential_expression/"
+    os.makedirs(fig_dir, exist_ok=True)
+
+    fig_overlap, ax_overlap = plt.subplots(figsize=(20, 16))
+    fig_corr, ax_corr = plt.subplots(figsize=(20, 16))
+
+    time_pairs = metrics_df["time_pair"].values
+    x_pos = range(len(time_pairs))
+
+    # Plot overlap as line graph
+    ax_overlap.plot(
+        x_pos,
+        metrics_df["overlap"].values,
+        marker="o",
+        color="steelblue",
+        linewidth=2,
+        markersize=6,
+    )
+    ax_overlap.set_title(f"All Cell Types Overlap in Top 100 DE Genes", fontsize=10)
+    ax_overlap.set_xlabel("Time Transition")
+    ax_overlap.set_ylabel("Overlap Count")
+    ax_overlap.set_xticks(x_pos)
+    ax_overlap.set_xticklabels(time_pairs, rotation=45, ha="right", fontsize=8)
+    ax_overlap.set_ylim(0, 100)
+    ax_overlap.grid(True, alpha=0.3)
+
+    # Plot Spearman correlation as line graph
+    ax_corr.plot(
+        x_pos,
+        metrics_df["spearman_corr"].values,
+        marker="s",
+        color="coral",
+        linewidth=2,
+        markersize=6,
+    )
+    ax_corr.set_title(f"All Cell Types Spearman Correlation", fontsize=10)
+    ax_corr.set_xlabel("Time Transition")
+    ax_corr.set_ylabel("Spearman r")
+    ax_corr.set_xticks(x_pos)
+    ax_corr.set_xticklabels(time_pairs, rotation=45, ha="right", fontsize=8)
+    ax_corr.set_ylim(-1, 1)
+    ax_corr.axhline(y=0, color="k", linestyle="--", alpha=0.3)
+    ax_corr.grid(True, alpha=0.3)
+
+    plt.figure(fig_overlap.number)
+    plt.tight_layout()
+    plt.savefig(
+        os.path.join(fig_dir, "time_de_overlap_all.png"), dpi=300, bbox_inches="tight"
+    )
+    print(f"Saved overlap plot to {fig_dir}")
+    plt.close(fig_overlap)
+
+    plt.figure(fig_corr.number)
+    plt.tight_layout()
+    plt.savefig(
+        os.path.join(fig_dir, "time_de_spearman_all.png"), dpi=300, bbox_inches="tight"
+    )
+    print(f"Saved Spearman correlation plot to {fig_dir}")
+    plt.close(fig_corr)
 
 
 def plot_time_de(true_de_set, pred_de_set, cell_types):
@@ -559,6 +659,13 @@ def diff_gene_analysis(
         pred_de_set[cell_type] = time_de_analysis(pred_pseudo_bulk, cell_type)
 
     plot_time_de(true_de_set, pred_de_set, cell_types)
+
+    # Step 5: Overall differential gene analysis over time (not per cell type)
+    true_de_set = time_de_analysis(true_celltype_aggregate_pseudo_bulk, None)
+    pred_de_set = time_de_analysis(pred_celltype_aggregate_pseudo_bulk, None)
+    plot_time_de_all(true_de_set, pred_de_set)
+
+    # Step 6: Now let's do GSEA analysis
 
 
 def prepare_cells(args, ann_data, latent_ode_model):
