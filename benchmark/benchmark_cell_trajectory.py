@@ -19,6 +19,7 @@ import os
 import torch
 import numpy as np
 from pprint import pprint
+import gseapy as gp
 
 from benchmark_cell_types import (
     load_model,
@@ -293,7 +294,6 @@ def time_de_analysis(pseudo_bulk, cell_type):
 
         # log fold change, future timepoint / past timepoint, sorted descending
         de_genes_tp = np.log2((expr2 + 1e-8) / (expr1 + 1e-8))
-        de_genes_tp = np.argsort(-de_genes_tp)  # descending order, store their indices
         de_genes[(tp1, tp2)] = de_genes_tp
 
     return de_genes
@@ -313,8 +313,14 @@ def plot_time_de_all(true_de_set, pred_de_set):
     for tp_pair in true_de_set:
         if tp_pair in pred_de_set:
             # compute overlap in top 100 DE genes
-            true_top_genes = set(true_de_set[tp_pair][:100])
-            pred_top_genes = set(pred_de_set[tp_pair][:100])
+            true_de_genes_tp = np.argsort(
+                -true_de_set[tp_pair]
+            )  # descending order, store their indices
+            pred_de_genes_tp = np.argsort(
+                -pred_de_set[tp_pair]
+            )  # descending order, store their indices
+            true_top_genes = set(true_de_genes_tp[:100])
+            pred_top_genes = set(pred_de_genes_tp[:100])
             overlap = true_top_genes.intersection(pred_top_genes)
             print(
                 f"Overall Time DE Analysis, Time points {tp_pair}: Overlap in top 100 DE genes: {len(overlap)}"
@@ -404,14 +410,21 @@ def plot_time_de(true_de_set, pred_de_set, cell_types):
         "time_pair": [],
         "overlap": [],
         "spearman_corr": [],
+        "accuracy": [],
     }
 
     for cell_type in cell_types:
         for tp_pair in true_de_set[cell_type]:
             if tp_pair in pred_de_set[cell_type]:
                 # compute overlap in top 100 DE genes
-                true_top_genes = set(true_de_set[cell_type][tp_pair][:100])
-                pred_top_genes = set(pred_de_set[cell_type][tp_pair][:100])
+                true_de_genes_tp = np.argsort(
+                    -true_de_set[cell_type][tp_pair]
+                )  # descending order, store their indices
+                pred_de_genes_tp = np.argsort(
+                    -pred_de_set[cell_type][tp_pair]
+                )  # descending order, store their indices
+                true_top_genes = set(true_de_genes_tp[:100])
+                pred_top_genes = set(pred_de_genes_tp[:100])
                 overlap = true_top_genes.intersection(pred_top_genes)
                 print(
                     f"Cell type {cell_type}, Time points {tp_pair}: Overlap in top 100 DE genes: {len(overlap)}"
@@ -421,15 +434,33 @@ def plot_time_de(true_de_set, pred_de_set, cell_types):
                 spearman = spearmanr(
                     true_de_set[cell_type][tp_pair], pred_de_set[cell_type][tp_pair]
                 )
+                print(true_de_set[cell_type][tp_pair], pred_de_set[cell_type][tp_pair])
                 print(
                     f"Cell type {cell_type}, Time points {tp_pair}: Spearman correlation: {spearman.statistic}"
                 )
+
+                # let's also add an "accuracy" score, where we count how many of the genes
+                # have the same sign in the log fold change, as long as the true absolute value or pred. absolute value > 0.1
+                correct_count = 0
+                total_count = 0
+                for i in range(len(true_de_set[cell_type][tp_pair])):
+                    true_val = true_de_set[cell_type][tp_pair][i]
+                    pred_val = pred_de_set[cell_type][tp_pair][i]
+                    if abs(true_val) > 0.1 or abs(pred_val) > 0.1:
+                        total_count += 1
+                        if (true_val >= 0 and pred_val >= 0) or (
+                            true_val < 0 and pred_val < 0
+                        ):
+                            correct_count += 1
+
+                accuracy = correct_count / total_count if total_count > 0 else 0.0
 
                 # Store metrics
                 metrics_data["cell_type"].append(cell_type)
                 metrics_data["time_pair"].append(f"{tp_pair[0]}->{tp_pair[1]}")
                 metrics_data["overlap"].append(len(overlap))
                 metrics_data["spearman_corr"].append(spearman.statistic)
+                metrics_data["accuracy"].append(accuracy)
 
             else:
                 print(
@@ -448,6 +479,9 @@ def plot_time_de(true_de_set, pred_de_set, cell_types):
         # Create figure for overlap with 4x5 grid
         fig_overlap, axes_overlap = plt.subplots(4, 5, figsize=(20, 16))
         axes_overlap_flat = axes_overlap.flatten()
+
+        fig_accuracy, axes_accuracy = plt.subplots(4, 5, figsize=(20, 16))
+        axes_accuracy_flat = axes_accuracy.flatten()
 
         # Create figure for Spearman correlation with 4x5 grid
         fig_corr, axes_corr = plt.subplots(4, 5, figsize=(20, 16))
@@ -476,6 +510,24 @@ def plot_time_de(true_de_set, pred_de_set, cell_types):
             ax_overlap.set_ylim(0, 100)
             ax_overlap.grid(True, alpha=0.3)
 
+            # Plot accuracy as line graph
+            ax_accuracy = axes_accuracy_flat[idx]
+            ax_accuracy.plot(
+                x_pos,
+                cell_type_data["accuracy"].values,
+                marker="o",
+                color="steelblue",
+                linewidth=2,
+                markersize=6,
+            )
+            ax_accuracy.set_title(f"{cell_type}", fontsize=10)
+            ax_accuracy.set_xlabel("Time Transition")
+            ax_accuracy.set_ylabel("Accuracy")
+            ax_accuracy.set_xticks(x_pos)
+            ax_accuracy.set_xticklabels(time_pairs, rotation=45, ha="right", fontsize=8)
+            ax_accuracy.set_ylim(0, 1)
+            ax_accuracy.grid(True, alpha=0.3)
+
             # Plot Spearman correlation as line graph
             ax_corr = axes_corr_flat[idx]
             ax_corr.plot(
@@ -497,6 +549,7 @@ def plot_time_de(true_de_set, pred_de_set, cell_types):
 
         # Hide unused subplots
         for idx in range(n_cell_types, 20):
+            axes_accuracy_flat[idx].set_visible(False)
             axes_overlap_flat[idx].set_visible(False)
             axes_corr_flat[idx].set_visible(False)
 
@@ -509,6 +562,18 @@ def plot_time_de(true_de_set, pred_de_set, cell_types):
         )
         print(f"Saved overlap plot to {fig_dir}")
         plt.close(fig_overlap)
+
+        # Save overlap figure
+        fig_accuracy.suptitle(
+            "Accuracy in Sign of Log Fold Changes", fontsize=14, y=0.995
+        )
+        plt.figure(fig_accuracy.number)
+        plt.tight_layout()
+        plt.savefig(
+            os.path.join(fig_dir, "log_fold_changes.png"), dpi=300, bbox_inches="tight"
+        )
+        print(f"Saved accuracy plot to {fig_dir}")
+        plt.close(fig_accuracy)
 
         # Save Spearman correlation figure
         fig_corr.suptitle(
@@ -525,8 +590,168 @@ def plot_time_de(true_de_set, pred_de_set, cell_types):
         plt.close(fig_corr)
 
 
+def gsea_analysis(true_pseudobulk, pred_pseudobulk, gene_names, cell_types):
+    """
+    Given the true and predicted DE gene sets, perform GSEA analysis.
+    """
+    time_points = sorted(true_pseudobulk.keys())
+    n_tps = len(time_points)
+
+    cell_type_metrics = {}
+
+    fig_dir = "./figs/differential_expression/gsea/"
+    os.makedirs(fig_dir, exist_ok=True)
+
+    # Create figure for overlap with 4x5 grid
+    fig_overlap, axes_overlap = plt.subplots(4, 5, figsize=(20, 16))
+    axes_overlap_flat = axes_overlap.flatten()
+
+    # Create figure for Spearman correlation with 4x5 grid
+    fig_corr, axes_corr = plt.subplots(4, 5, figsize=(20, 16))
+    axes_corr_flat = axes_corr.flatten()
+
+    for idx, cell_type in enumerate(cell_types):
+        metrics = {
+            "accuracy": [],
+            "spearman_corr": [],
+            "time_pairs": [],
+        }
+        for i in range(n_tps - 1):
+            tp1 = time_points[i]
+            tp2 = time_points[i + 1]
+
+            if (
+                cell_type not in true_pseudobulk[tp1]
+                or cell_type not in true_pseudobulk[tp2]
+                or cell_type not in pred_pseudobulk[tp1]
+                or cell_type not in pred_pseudobulk[tp2]
+            ):
+                continue
+
+            expr_t1 = pd.Series(true_pseudobulk[tp1][cell_type], index=gene_names)
+            expr_t2 = pd.Series(true_pseudobulk[tp2][cell_type], index=gene_names)
+
+            pred_expr_t1 = pd.Series(pred_pseudobulk[tp1][cell_type], index=gene_names)
+            pred_expr_t2 = pd.Series(pred_pseudobulk[tp2][cell_type], index=gene_names)
+
+            log2fc = np.log2((expr_t2 + 1e-8) / (expr_t1 + 1e-8))
+            pred_log2fc = np.log2((pred_expr_t2 + 1e-8) / (pred_expr_t1 + 1e-8))
+            log2fc.sort_values(ascending=False, inplace=True)
+            pred_log2fc.sort_values(ascending=False, inplace=True)
+
+            # now let's do GSEA using gseapy
+            true_preranks = gp.prerank(
+                rnk=log2fc,
+                gene_sets="MSigDB_Hallmark_2020",
+                outdir=None,
+            )
+            pred_preranks = gp.prerank(
+                rnk=pred_log2fc,
+                gene_sets="MSigDB_Hallmark_2020",
+                outdir=None,
+            )
+
+            # now let's compare the results, by doing the following:
+            # 1) calculating the accuracy of the NES sign
+            # 2) calculating the spearman correlation of the gene sets
+
+            nes_count = 0
+            threshold = 0.5
+            for gene_set in true_preranks.res2d.index:
+                if gene_set in pred_preranks.res2d.index:
+                    true_nes = true_preranks.res2d.loc[gene_set, "NES"]
+                    pred_nes = pred_preranks.res2d.loc[gene_set, "NES"]
+                    if (true_nes >= threshold and pred_nes >= threshold) or (
+                        true_nes < -threshold and pred_nes < -threshold
+                    ):
+                        nes_count += 1
+
+            accuracy = nes_count / len(true_preranks.res2d.index)
+            metrics["accuracy"].append(accuracy)
+
+            # now let's calculate the spearman correlation
+            spearman = spearmanr(
+                true_preranks.res2d.sort_values(by="Term")["NES"],
+                pred_preranks.res2d.sort_values(by="Term")["NES"],
+            )
+            metrics["spearman_corr"].append(spearman.statistic)
+            metrics["time_pairs"].append(f"{tp1}->{tp2}")
+
+        metrics_df = pd.DataFrame(metrics)
+
+        time_pairs = metrics_df["time_pairs"].values
+        x_pos = range(len(time_pairs))
+        # Plot overlap as line graph
+        ax_overlap = axes_overlap_flat[idx]
+        ax_overlap.plot(
+            x_pos,
+            metrics_df["accuracy"].values,
+            marker="o",
+            color="steelblue",
+            linewidth=2,
+            markersize=6,
+        )
+        ax_overlap.set_title(f"{cell_type}", fontsize=10)
+        ax_overlap.set_xlabel("Time Transition")
+        ax_overlap.set_ylabel("NES Sign Accuracy")
+        ax_overlap.set_xticks(x_pos)
+        ax_overlap.set_xticklabels(time_pairs, rotation=45, ha="right", fontsize=8)
+        ax_overlap.set_ylim(0, 100)
+        ax_overlap.grid(True, alpha=0.3)
+
+        # Plot Spearman correlation as line graph
+        ax_corr = axes_corr_flat[idx]
+        ax_corr.plot(
+            x_pos,
+            metrics_df["spearman_corr"].values,
+            marker="s",
+            color="coral",
+            linewidth=2,
+            markersize=6,
+        )
+        ax_corr.set_title(f"{cell_type}", fontsize=10)
+        ax_corr.set_xlabel("Time Transition")
+        ax_corr.set_ylabel("Spearman r")
+        ax_corr.set_xticks(x_pos)
+        ax_corr.set_xticklabels(time_pairs, rotation=45, ha="right", fontsize=8)
+        ax_corr.set_ylim(-1, 1)
+        ax_corr.axhline(y=0, color="k", linestyle="--", alpha=0.3)
+        ax_corr.grid(True, alpha=0.3)
+
+    # Hide unused subplots
+    for idx in range(len(cell_types), 20):
+        axes_overlap_flat[idx].set_visible(False)
+        axes_corr_flat[idx].set_visible(False)
+
+    # Save overlap figure
+    fig_overlap.suptitle("Accuracy of NES Sign Agreement", fontsize=14, y=0.995)
+    plt.figure(fig_overlap.number)
+    plt.tight_layout()
+    plt.savefig(os.path.join(fig_dir, "accuracy.png"), dpi=300, bbox_inches="tight")
+    print(f"Saved overlap plot to {fig_dir}")
+    plt.close(fig_overlap)
+
+    # Save Spearman correlation figure
+    fig_corr.suptitle(
+        "Spearman Correlation between True and Predicted DE Gene Sets",
+        fontsize=14,
+        y=0.995,
+    )
+    plt.figure(fig_corr.number)
+    plt.tight_layout()
+    plt.savefig(os.path.join(fig_dir, "spearman.png"), dpi=300, bbox_inches="tight")
+    print(f"Saved Spearman correlation plot to {fig_dir}")
+    plt.close(fig_corr)
+
+
 def diff_gene_analysis(
-    args, pred_embeds, true_embeds, inferred_cell_types, true_cell_types, model
+    args,
+    pred_embeds,
+    true_embeds,
+    inferred_cell_types,
+    true_cell_types,
+    model,
+    gene_names,
 ):
     """
     Perform differential gene analysis on the inferred trajectories.
@@ -665,7 +890,11 @@ def diff_gene_analysis(
     pred_de_set = time_de_analysis(pred_celltype_aggregate_pseudo_bulk, None)
     plot_time_de_all(true_de_set, pred_de_set)
 
-    # Step 6: Now let's do GSEA analysis
+    # TODO: fix this part here. Likely not the best to use atm...
+    # Step 6: Now let's do GSEA analysis, based on the gene names that I have
+    # gsea_analysis(
+    #     true_pseudo_bulk, pred_pseudo_bulk, gene_names, cell_types
+    # )
 
 
 def prepare_cells(args, ann_data, latent_ode_model):
@@ -681,7 +910,9 @@ def prepare_cells(args, ann_data, latent_ode_model):
     tps = tps_to_continuous(tps, times_sorted)
 
     if args.use_sequential_pred:
-        pred_embeds = get_cell_pred_embeds_sequential(latent_ode_model, traj_data, tps)
+        pred_embeds = get_cell_pred_embeds_sequential(
+            latent_ode_model, traj_data, tps, args
+        )
     else:
         pred_embeds = get_cell_pred_embeds_joint(latent_ode_model, traj_data, tps)
 
@@ -745,6 +976,10 @@ if __name__ == "__main__":
             times_sorted,
         ) = prepare_cells(args, ann_data, latent_ode_model)
         print(f"Successfully prepared cell embeddings and cell types")
+
+        # finally, let's save a mapping of the genes and its names
+        gene_names = ann_data.var_names.tolist()
+
         torch.save(
             {
                 "true_embeds": true_embeds,
@@ -752,6 +987,7 @@ if __name__ == "__main__":
                 "pred_embeds": pred_embeds,
                 "inferred_cell_types": inferred_cell_types,
                 "times_sorted": times_sorted,
+                "gene_names": gene_names,
             },
             "./logs/embeds.pkl",
         )
@@ -764,6 +1000,7 @@ if __name__ == "__main__":
         pred_embeds = data["pred_embeds"]
         inferred_cell_types = data["inferred_cell_types"]
         times_sorted = data["times_sorted"]
+        gene_names = data["gene_names"]
 
     if args.sankey_plot:
         # now we can use these inferred cell types to create trajectories
@@ -778,7 +1015,6 @@ if __name__ == "__main__":
         print(f"Plotted cell type entropy over time")
         exit()
 
-    # TODO: read from ann_data the names of different genes as verification!
     if args.diff_genes:
         print("Diff. gene analysis to be implemented.")
         diff_gene_analysis(
@@ -788,5 +1024,6 @@ if __name__ == "__main__":
             inferred_cell_types,
             true_cell_types,
             latent_ode_model,
+            gene_names,
         )
         exit()
